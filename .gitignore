@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+
+venv/
+.env
+
+silver/
+crawl4ai-cache/
+*.parquet
+
+.vscode/
+
+.DS_Store

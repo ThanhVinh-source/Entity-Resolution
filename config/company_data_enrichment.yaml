@@ -1,0 +1,46 @@
+input_csv: dataset/data_sample_AofAI.csv
+output_dir: dataset/silver
+
+url_columns:
+  website_url: official
+  linkedin_url: social
+  facebook_url: social
+  instagram_url: social
+  twitter_url: social
+  youtube_url: social
+
+crawl:
+  max_concurrency: 3
+  timeout_ms: 60000
+  retry_count: 2
+  cache_base_dir: dataset/silver/crawl4ai-cache
+  deep_crawl_enabled: true
+  deep_crawl_max_depth: 1
+  deep_crawl_max_pages: 5
+  deep_crawl_include_external: false
+
+rules:
+  add_threshold: 0.60
+  replace_threshold: 0.80
+
+validation_signals:
+  enabled: true
+  jsonld_country_confidence: 0.90
+  tld_country_confidence: 0.85
+  text_country_confidence: 0.65
+  language_country_confidence: 0.55
+  city_pattern_confidence: 0.60
+
+target_fields:
+  - company_name
+  - company_legal_names
+  - company_commercial_names
+  - main_country_code
+  - main_country
+  - main_region
+  - main_city
+  - main_postcode
+  - main_street
+  - primary_email
+  - primary_phone
+  - short_description
