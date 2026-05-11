@@ -1,3 +1,15 @@
+"""
+MULTI-SOURCE EVIDENCE EXTRACTOR (V2.0)
+--> Extract and normalize entity information (Name, Email, Phone Number, Location) from web content.
+
+Core Features:
+1. Hybrid Extraction: Combines extraction from structured data (JSON-LD), metadata, and raw text (Markdown).
+2. Geo-Intelligence: Integrates a module for identifying countries/cities and automatically normalizes to ISO-2 encoding.
+3. Confidence Scoring: Flexible confidence scoring system based on evidence sources (JSON-LD > Meta > Text).
+4. Audit Traceability: Applies contextual stamps (original URL, website source, crawl depth) to each data field.
+5. Robust Cleaning: Removes noise from HTML (nav, footer, scripts) to increase accuracy in information recognition.
+"""
+
 import json
 import re
 
@@ -95,7 +107,7 @@ def make_country_fields(canonical_url, country_value, evidence_type, confidence,
     return rows
 
 
-# note: Collect metadata text snippets that are useful for location extraction and evidence context.
+# Collect metadata text snippets that are useful for location extraction and evidence context.
 def collect_meta_contents(soup):
     contents = []
 
@@ -107,7 +119,7 @@ def collect_meta_contents(soup):
     return contents
 
 
-# note: Strip non-content page chrome before extracting visible body text for geo keyword matching.
+# Strip non-content page chrome before extracting visible body text for geo keyword matching.
 def clean_visible_text(soup):
     for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
         tag.decompose()
@@ -115,7 +127,7 @@ def clean_visible_text(soup):
     return clean_text(soup.get_text(" ", strip=True))
 
 
-# note: Extract structured location hints from geo, locale, and language metadata.
+# Extract structured location hints from geo, locale, and language metadata.
 def extract_geo_from_meta(canonical_url, soup, validation_config):
     rows = []
     city_confidence = confidence_value(validation_config, "city_pattern_confidence")

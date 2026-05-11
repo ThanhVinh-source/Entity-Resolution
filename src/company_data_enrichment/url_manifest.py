@@ -1,3 +1,15 @@
+"""
+MODULE: URL MANIFEST and CRAWL QUEUE BUILDER
+--> Convert raw URLs from CSV into clean and optimized queue lists.
+
+Core Features:
+1. URL Normalization: Normalizes links (adds https, lowercase, removes www) to the standard Canonical URL format.
+2. Manifest Aggregation: Groups all URLs from multiple columns (Official, Social) into a centralized list.
+3. Smart Deduplication: Removes duplicate URLs to prevent bots from crawling the same website again.
+4. Priority Logic: Sets the priority order (Official Website > Social Networks) for the crawl queue.
+5. Domain Extraction: Extracts clean domains for cache management.
+"""
+
 from urllib.parse import urlparse, urlunparse
 
 import pandas as pd
@@ -38,7 +50,7 @@ def extract_domain(url):
 
     return domain or None
 
-
+# Build a manifest of URLs from a DataFrame based on specified URL columns and their source types.
 def build_url_manifest(df, url_columns):
     parts = []
 
@@ -78,7 +90,7 @@ def build_url_manifest(df, url_columns):
     ]
     return manifest[columns]
 
-
+# Build a crawl queue from the URL manifest by sorting and deduplicating based on canonical URLs.
 def build_crawl_queue(manifest_df):
     queue_df = (
         manifest_df.sort_values(["priority", "domain", "canonical_url"])

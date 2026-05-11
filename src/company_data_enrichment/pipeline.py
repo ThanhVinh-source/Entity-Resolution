@@ -1,3 +1,20 @@
+"""
+PIPELINE 
+--> Central orchestrates the flow of data from raw CSV files to the final enriched result
+
+Core Features:
+1. Orchestration: Connects Crawler, Extractor, and Rules Engine into a closed-loop process that starts with raw URLs and ends with enriched company data.
+2. Evidence Scoring: Calculates confidence scores based on data sources (Official > CSV > Social) and field-level signals (e.g. TLD-based country inference).
+3. Automated Merging: Decides to add/replace data based on predefined thresholds
+4. Audit Trail: Creates detailed logs (Action JSON) for all changes to facilitate auditing
+
+PIPELINE FLOW :
+STEP 1: build-manifest (in url_manifest) -> Planning (Identify URLs to crawl and perform preliminary TLD/Geo processing)
+STEP 2: crawl -> Execution (Bot Crawl4AI collects content) HTML/Markdown)
+STEP 3: Extract -> Convert HTML into fields such as Name, Email, Address, Geo...
+STEP 4: Merge -> Score evidence and record results in data_enriched.csv
+"""
+
 import argparse
 import json
 import math

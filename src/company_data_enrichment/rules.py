@@ -1,3 +1,18 @@
+"""
+MODULE: DATA MERGING and DECISION RULES
+--> Makes the final decision on integrating extracted data into the original dataset.
+
+Core Features:
+1. Normalization: Normalizes text (capitalization, removal of extraneous characters) for fair data comparison.
+2. Threshold-Based Logic: Uses confidence thresholds (Add/Replace Thresholds) to automate decision-making.
+3. Action Classification: Clearly categorizes actions:
+- KEEP: Keeps the old data.
+- ADD: Fills in the blank when sufficient confidence is reached.
+- REPLACE: Overwrites the old data with new, more accurate data.
+- CONFLICT_REVIEW: Marks conflicting cases requiring human review.
+4. Value Selection: A function that selects the final value for the Gold data layer.
+"""
+
 # RULE:
 # This module defines the rules for deciding whether to keep, add, replace, or mark for review the extracted company data based on the original value, the extracted value, and the confidence score. 
 # It includes functions to check for missing values, normalize text for comparison, and safely handle confidence scores.

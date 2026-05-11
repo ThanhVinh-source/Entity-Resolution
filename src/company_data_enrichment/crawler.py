@@ -1,3 +1,16 @@
+"""
+ASYNCHRONOUS SMART CRAWLER (Crawl4AI)
+
+--> Collect raw data (Markdown, HTML, Metadata) from a list of vendor URLs.
+
+Core Features:
+1. Deep Crawling (BFS): Automatically crawls subpages (About, Contact) to find more evidence.
+2. Smart Filtering: Intelligent URL filtering removes junk pages (Login, Cart, Media, Sign In, Sign Up) to reduce noise.
+3. High Performance: Runs asynchronously (Async) with Semaphore control to avoid IP blocking.
+4. Robustness: Integrates Caching (resource saving) and Error Handling (detailed error logging).
+5. Data Flattening: Standardizes all results into table structure to prepare for Extract and Merge.
+"""
+
 import asyncio
 import json
 import os

@@ -1,3 +1,15 @@
+"""
+GEO-INFERENCE 
+--> Infer and standardize geographic information (Country/City) from the provider.
+
+Core Features:
+1. ISO Standardization: Converts country names, nicknames (USA, UK), and area codes to the consistent ISO-2 standard.
+2. Multi-Signal Analysis: Combines analysis from TLDs (domain names .da, .dk), language codes (da, en), and website content.
+3. Heuristic Mapping: Uses keywords (Text Signals) and a place name dictionary to identify countries.
+4. City Extraction: Uses regular expressions (Regex) to extract cities from location phrases (Headquartered in...).
+5. Priority Logic: Prioritizes signals from country domain names before considering language factors and text keywords.
+"""
+
 import re
 from urllib.parse import urlparse
 

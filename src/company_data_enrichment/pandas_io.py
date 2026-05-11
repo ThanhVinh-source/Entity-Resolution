@@ -1,3 +1,14 @@
+"""
+MODULE: DATA I/O and PATH UTILITIES
+--> Manages data reading/writing (CSV & Parquet) and file system processing.
+
+Core Features:
+1. Robust Reading: Supports reading CSV/Parquet with standard configuration (UTF-8-sig, string dtypes) to avoid formatting errors.
+2. Safe Overwrite: The prepare_output_path mechanism automatically cleans up old directories/files before writing new data.
+3. Path Management: Automatically initializes parent directory structures if they don't exist, ensuring smooth pipeline operation.
+4. Format Flexibility: Provides Pandas wrapper functions for flexible conversion between archive formats.
+"""
+
 import os
 import shutil
 
