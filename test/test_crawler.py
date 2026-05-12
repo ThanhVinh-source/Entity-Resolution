@@ -1,8 +1,13 @@
+import asyncio
+
 from crawl4ai import BFSDeepCrawlStrategy
 
+import company_data_enrichment.crawler as crawler_module
 from company_data_enrichment.crawler import (
     build_failure_row,
     build_run_config,
+    chunk_records,
+    crawl_records_async,
     flatten_crawl_result,
     should_deep_crawl_record,
 )
@@ -115,3 +120,160 @@ def test_build_failure_row_keeps_seed_schema():
     assert row["depth"] == 0
     assert row["success"] is False
     assert row["error_message"] == "DNS failed"
+
+
+def test_chunk_records_splits_records_by_batch_size():
+    records = [{"id": 1}, {"id": 2}, {"id": 3}]
+
+    batches = list(chunk_records(records, batch_size=2))
+
+    assert batches == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
+
+
+def test_crawl_records_async_preserves_results_when_browser_close_fails(monkeypatch, tmp_path):
+    class FakeCrawler:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            raise RuntimeError("Browser.close: Connection closed while reading from the driver")
+
+        async def arun(self, url, config):
+            return FakeCrawlResult(
+                url=url,
+                success=True,
+                markdown="ok",
+                html="<html>ok</html>",
+                metadata={"depth": 0},
+            )
+
+    monkeypatch.setattr(crawler_module, "AsyncWebCrawler", FakeCrawler)
+
+    rows = asyncio.run(
+        crawl_records_async(
+            records=[
+                {
+                    "canonical_url": "https://example.com",
+                    "domain": "example.com",
+                    "source_type": "official",
+                    "source_col": "website_url",
+                    "priority": 1,
+                }
+            ],
+            cache_base_dir=str(tmp_path),
+        )
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["success"] is True
+    assert rows[0]["canonical_url"] == "https://example.com"
+
+
+def test_crawl_records_async_continues_after_batch_close_fails(monkeypatch, tmp_path):
+    class FakeCrawler:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            raise RuntimeError("Browser.close: Connection closed while reading from the driver")
+
+        async def arun(self, url, config):
+            return FakeCrawlResult(
+                url=url,
+                success=True,
+                markdown="ok",
+                html="<html>ok</html>",
+                metadata={"depth": 0},
+            )
+
+    monkeypatch.setattr(crawler_module, "AsyncWebCrawler", FakeCrawler)
+
+    rows = asyncio.run(
+        crawl_records_async(
+            records=[
+                {
+                    "canonical_url": "https://one.example",
+                    "domain": "one.example",
+                    "source_type": "official",
+                    "source_col": "website_url",
+                    "priority": 1,
+                },
+                {
+                    "canonical_url": "https://two.example",
+                    "domain": "two.example",
+                    "source_type": "official",
+                    "source_col": "website_url",
+                    "priority": 1,
+                },
+            ],
+            cache_base_dir=str(tmp_path),
+            batch_size=1,
+        )
+    )
+
+    assert [row["canonical_url"] for row in rows] == [
+        "https://one.example",
+        "https://two.example",
+    ]
+    assert [row["success"] for row in rows] == [True, True]
+
+
+def test_crawl_records_async_records_unhandled_task_exception(monkeypatch, tmp_path):
+    class FakeCrawler:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def arun(self, url, config):
+            if "bad" in url:
+                raise RuntimeError("page crashed")
+
+            return FakeCrawlResult(
+                url=url,
+                success=True,
+                markdown="ok",
+                html="<html>ok</html>",
+                metadata={"depth": 0},
+            )
+
+    monkeypatch.setattr(crawler_module, "AsyncWebCrawler", FakeCrawler)
+
+    rows = asyncio.run(
+        crawl_records_async(
+            records=[
+                {
+                    "canonical_url": "https://good.example",
+                    "domain": "good.example",
+                    "source_type": "official",
+                    "source_col": "website_url",
+                    "priority": 1,
+                },
+                {
+                    "canonical_url": "https://bad.example",
+                    "domain": "bad.example",
+                    "source_type": "social",
+                    "source_col": "youtube_url",
+                    "priority": 2,
+                },
+            ],
+            cache_base_dir=str(tmp_path),
+            batch_size=2,
+        )
+    )
+
+    rows_by_url = {row["canonical_url"]: row for row in rows}
+
+    assert rows_by_url["https://good.example"]["success"] is True
+    assert rows_by_url["https://bad.example"]["success"] is False
+    assert rows_by_url["https://bad.example"]["error_message"] == "page crashed"

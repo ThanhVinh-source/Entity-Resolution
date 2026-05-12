@@ -1,18 +1,20 @@
 """
-PIPELINE 
---> Central orchestrates the flow of data from raw CSV files to the final enriched result
+MODULE: INTEGRATED DATA PIPELINE & ER-READY EXPORTER
+--> Task: Coordinates the data journey from raw URLs to normalized datasets (ER-Ready) ready for Entity Resolution.
 
-Core Features:
-1. Orchestration: Connects Crawler, Extractor, and Rules Engine into a closed-loop process that starts with raw URLs and ends with enriched company data.
-2. Evidence Scoring: Calculates confidence scores based on data sources (Official > CSV > Social) and field-level signals (e.g. TLD-based country inference).
-3. Automated Merging: Decides to add/replace data based on predefined thresholds
-4. Audit Trail: Creates detailed logs (Action JSON) for all changes to facilitate auditing
+Core features closely following the source code:
+1. Modular Workflow: Connects Crawler, Extractor, and Validation Engine into a single command sequence.
+2. Weighted Validation Voting: An intelligent processing layer that resolves geographic data conflicts by weighted voting (TLD vs. JSON-LD vs. Web Content).
+3. Rule-Based Decision Engine: Automates decision-making (KEEP/ADD/REPLACE) based on confidence thresholds configured in YAML.
+4. ER-Ready Formatting: Dedicated data export tool that automatically selects the best value between the original data and enriched data to load into Databricks.
+5. Audit & Quality Traceability: Provides detailed JSON Action logs and a Quality Report for each run.
 
-PIPELINE FLOW :
-STEP 1: build-manifest (in url_manifest) -> Planning (Identify URLs to crawl and perform preliminary TLD/Geo processing)
-STEP 2: crawl -> Execution (Bot Crawl4AI collects content) HTML/Markdown)
-STEP 3: Extract -> Convert HTML into fields such as Name, Email, Address, Geo...
-STEP 4: Merge -> Score evidence and record results in data_enriched.csv
+PIPELINE FLOW:
+STEP 1: build-manifest -> PLANNING: Normalize URLs and perform early geographic processing from the domain name (TLD).
+STEP 2: crawl -> COLLECT: The Crawl4AI bot retrieves HTML/Markdown content from the queue.
+STEP 3: extract -> ANALYSIS: Extract information + Perform country/city voting.
+STEP 4: merge -> MERGE: Apply rules to create the data_enriched dataset.
+STEP 5: export-er-ready -> Create the optimized file for entity matching (data_er_ready).
 """
 
 import argparse
@@ -26,9 +28,14 @@ import yaml
 from company_data_enrichment.crawler import crawl_records
 from company_data_enrichment.extractors import extract_rows
 from company_data_enrichment.geo_signals import (
+    build_country_signal_votes,
+    choose_city_signal,
+    choose_country_vote,
+    classify_country_verdict,
     country_name_from_iso,
     infer_country_from_csv_fields,
     infer_strong_country_from_tld,
+    normalize_country_to_iso,
 )
 from company_data_enrichment.pandas_io import read_input_csv, read_parquet, write_csv, write_parquet
 from company_data_enrichment.quality_report import build_quality_report
@@ -60,6 +67,36 @@ EXTRACTED_FIELD_COLUMNS = [
 ]
 
 LOCKED_COUNTRY_FIELDS = {"main_country_code", "main_country"}
+VALIDATION_ACCEPTED_VERDICTS = {
+    "CONFIRMED",
+    "CONFLICT_TLD",
+    "CONFLICT",
+    "MISSING_FILLED",
+}
+VALIDATION_RESULT_COLUMNS = [
+    "Applications_of_AI_id",
+    "company_name",
+    "db_country",
+    "db_country_name",
+    "db_city",
+    "tld_signal",
+    "language_signal",
+    "jsonld_country_signal",
+    "web_text_country_signal",
+    "social_country_signal",
+    "voted_country",
+    "voted_country_name",
+    "vote_confidence",
+    "country_match",
+    "web_city",
+    "city_method",
+    "final_method",
+    "verdict",
+    "recommended_action",
+    "all_signals",
+    "sources_used",
+    "reason",
+]
 
 
 def load_config(path):
@@ -90,6 +127,37 @@ def validation_config(config):
     return config.get("validation_signals", {"enabled": True})
 
 
+# note: Read country-validation settings used for report-style voting.
+def country_validation_config(config):
+    return config.get("country_validation", {"enabled": True})
+
+
+# note: Build a locale policy object used by extractor and validation voting.
+def locale_policy_config(config):
+    country_settings = country_validation_config(config)
+    return {
+        "weak_locale_evidence_types": country_settings.get(
+            "weak_locale_evidence_types",
+            [],
+        ),
+        "ignored_locale_tags": country_settings.get(
+            "ignored_locale_tags",
+            [],
+        ),
+        "locale_requires_support": country_settings.get(
+            "locale_requires_support",
+            False,
+        ),
+    }
+
+
+# note: Add locale policy to extractor validation settings so weak locale handling stays config-driven.
+def extractor_validation_config(config):
+    settings = dict(validation_config(config))
+    settings["locale_policy"] = locale_policy_config(config)
+    return settings
+
+
 # note: Build one direct evidence row that can be merged without a crawl manifest URL.
 def make_csv_evidence_field(
     application_id,
@@ -101,6 +169,7 @@ def make_csv_evidence_field(
     source_col,
     locked=False,
     lock_reason=None,
+    source_type="csv",
 ):
     if is_missing(extracted_value):
         return None
@@ -109,7 +178,7 @@ def make_csv_evidence_field(
         "Applications_of_AI_id": application_id,
         "seed_url": None,
         "canonical_url": None,
-        "source_type": "csv",
+        "source_type": source_type,
         "source_col": source_col,
         "priority": 0,
         "depth": 0,
@@ -212,11 +281,200 @@ def build_csv_geo_evidence(input_df, validation_settings):
     return rows
 
 
+# note: Pull the first country code produced by a selected validation signal family.
+def first_signal_country(signals, methods=None, source_type=None):
+    method_set = set(methods or [])
+
+    for signal in signals:
+        if method_set and signal.get("method") not in method_set:
+            continue
+
+        if source_type and signal.get("source") != source_type:
+            continue
+
+        return signal.get("country_code")
+
+    return None
+
+
+# note: Explain the validation verdict in compact text suitable for audit columns.
+def validation_reason(row):
+    verdict = row.get("verdict")
+    voted_country = row.get("voted_country")
+    db_country = row.get("db_country")
+    final_method = row.get("final_method")
+    confidence = row.get("vote_confidence")
+
+    if verdict == "CONFIRMED":
+        return f"Validation confirmed original country {db_country} with {final_method} signal."
+
+    if verdict == "CONFLICT_TLD":
+        return f"Country-specific TLD voted {voted_country}, conflicting with original country {db_country}."
+
+    if verdict == "CONFLICT":
+        return f"Validation voted {voted_country} with confidence {confidence}, conflicting with original country {db_country}."
+
+    if verdict == "MISSING_FILLED":
+        return f"Original country was missing; validation filled {voted_country} using {final_method}."
+
+    if verdict == "CONFLICT_UNCERTAIN":
+        return f"Country signals disagree with confidence {confidence}; original country kept for review."
+
+    return "Insufficient validation evidence."
+
+
+# note: Build report-style country validation results from current CSV and crawl evidence, without reading candidate_validation_v2.csv.
+def build_company_validation_results(input_df, manifest_df, crawl_extracted_df, config):
+    country_settings = country_validation_config(config)
+    if country_settings.get("enabled", True) is False:
+        return pd.DataFrame(columns=VALIDATION_RESULT_COLUMNS)
+
+    confidence_threshold = float(country_settings.get("vote_confidence_threshold", 0.75))
+
+    if crawl_extracted_df.empty:
+        evidence_df = pd.DataFrame()
+    else:
+        evidence_df = build_evidence_frame(manifest_df, crawl_extracted_df)
+
+    evidence_by_id = {}
+    if not evidence_df.empty and "Applications_of_AI_id" in evidence_df.columns:
+        for application_id, group in evidence_df.groupby("Applications_of_AI_id"):
+            evidence_by_id[str(application_id)] = group.to_dict("records")
+
+    input_unique_df = input_df.drop_duplicates(subset=["Applications_of_AI_id"])
+    rows = []
+    for _, input_row in input_unique_df.iterrows():
+        application_id = input_row.get("Applications_of_AI_id")
+        evidence_records = evidence_by_id.get(str(application_id), [])
+        signals = build_country_signal_votes(
+            website_tld=input_row.get("website_tld"),
+            website_url=input_row.get("website_url"),
+            website_language_code=input_row.get("website_language_code"),
+            evidence_records=evidence_records,
+            locale_policy=locale_policy_config(config),
+        )
+        vote = choose_country_vote(signals)
+        db_country = normalize_country_to_iso(input_row.get("main_country_code"))
+        verdict, recommended_action = classify_country_verdict(
+            db_country,
+            vote["voted_country"],
+            vote["vote_confidence"],
+            vote["final_method"],
+            confidence_threshold=confidence_threshold,
+        )
+        web_city, city_method, _ = choose_city_signal(evidence_records)
+        sources_used = sorted(
+            {
+                f"{signal.get('method')}:{signal.get('source')}"
+                for signal in signals
+            }
+        )
+
+        row = {
+            "Applications_of_AI_id": application_id,
+            "company_name": input_row.get("company_name"),
+            "db_country": db_country,
+            "db_country_name": country_name_from_iso(db_country),
+            "db_city": input_row.get("main_city"),
+            "tld_signal": first_signal_country(signals, ["tld"]),
+            "language_signal": first_signal_country(signals, ["language"]),
+            "jsonld_country_signal": first_signal_country(signals, ["json_ld"]),
+            "web_text_country_signal": first_signal_country(
+                signals,
+                ["page_text_country", "meta_geo", "html_lang"],
+            ),
+            "social_country_signal": first_signal_country(
+                signals,
+                ["page_text_country", "meta_geo", "html_lang", "json_ld"],
+                source_type="social",
+            ),
+            "voted_country": vote["voted_country"],
+            "voted_country_name": country_name_from_iso(vote["voted_country"]),
+            "vote_confidence": vote["vote_confidence"],
+            "country_match": vote["voted_country"] == db_country
+            if vote["voted_country"] and db_country
+            else None,
+            "web_city": web_city,
+            "city_method": city_method,
+            "final_method": vote["final_method"],
+            "verdict": verdict,
+            "recommended_action": recommended_action,
+            "all_signals": json.dumps(vote["all_signals"], ensure_ascii=False),
+            "sources_used": " | ".join(sources_used),
+            "reason": None,
+        }
+        row["reason"] = validation_reason(row)
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=VALIDATION_RESULT_COLUMNS)
+
+
+# note: Convert validation report rows into mergeable evidence for country and city fields.
+def build_validation_evidence_rows(validation_results_df, config):
+    country_settings = country_validation_config(config)
+    if country_settings.get("enabled", True) is False or validation_results_df.empty:
+        return []
+
+    confidence_threshold = float(country_settings.get("vote_confidence_threshold", 0.75))
+    city_confidence = float(
+        validation_config(config).get("city_pattern_confidence", 0.60)
+    )
+    rows = []
+
+    for _, row in validation_results_df.iterrows():
+        verdict = row.get("verdict")
+        voted_country = row.get("voted_country")
+        vote_confidence = safe_confidence(row.get("vote_confidence"))
+
+        if (
+            verdict in VALIDATION_ACCEPTED_VERDICTS
+            and vote_confidence >= confidence_threshold
+            and not is_missing(voted_country)
+        ):
+            country_name = country_name_from_iso(voted_country)
+            evidence_text = row.get("reason")
+
+            for field_name, extracted_value in [
+                ("main_country_code", voted_country),
+                ("main_country", country_name),
+            ]:
+                field = make_csv_evidence_field(
+                    application_id=row.get("Applications_of_AI_id"),
+                    field_name=field_name,
+                    extracted_value=extracted_value,
+                    evidence_type="validation_vote_country",
+                    confidence=vote_confidence,
+                    evidence_text=evidence_text,
+                    source_col=row.get("final_method") or "validation_vote",
+                    locked=True,
+                    lock_reason=verdict,
+                    source_type="validation",
+                )
+                if field:
+                    rows.append(field)
+
+        if not is_missing(row.get("web_city")):
+            field = make_csv_evidence_field(
+                application_id=row.get("Applications_of_AI_id"),
+                field_name="main_city",
+                extracted_value=row.get("web_city"),
+                evidence_type="validation_vote_city",
+                confidence=city_confidence,
+                evidence_text=row.get("reason"),
+                source_col=row.get("city_method") or "validation_city",
+                source_type="validation",
+            )
+            if field:
+                rows.append(field)
+
+    return rows
+
+
 def run_build_manifest(config):
     ensure_output_dir(config)
 
     df = read_input_csv(config["input_csv"])
-    validation_settings = validation_config(config)
+    validation_settings = extractor_validation_config(config)
     manifest_df = build_url_manifest(df, config["url_columns"])
     queue_df = build_crawl_queue(manifest_df)
     geo_prefill_df = pd.DataFrame(
@@ -270,6 +528,7 @@ def run_crawl(config, limit=None):
             "deep_crawl_include_external",
             False,
         ),
+        batch_size=config["crawl"].get("crawl_batch_size"),
     )
 
     results_df = pd.DataFrame(results)
@@ -286,9 +545,36 @@ def run_extract(config):
     crawl_rows = crawl_df.to_dict("records")
     validation_settings = validation_config(config)
 
-    extracted_rows = extract_rows(crawl_rows, validation_settings)
+    crawl_extracted_rows = extract_rows(crawl_rows, validation_settings)
     input_df = read_input_csv(config["input_csv"])
+    manifest_df = read_parquet(output_path(config, "url_manifest.parquet"))
+    crawl_extracted_df = pd.DataFrame(
+        crawl_extracted_rows,
+        columns=EXTRACTED_FIELD_COLUMNS,
+    )
+    validation_results_df = build_company_validation_results(
+        input_df,
+        manifest_df,
+        crawl_extracted_df,
+        config,
+    )
+    validation_evidence_rows = build_validation_evidence_rows(
+        validation_results_df,
+        config,
+    )
+
+    write_parquet(
+        validation_results_df,
+        output_path(config, "company_validation_results.parquet"),
+    )
+    write_csv(
+        validation_results_df,
+        output_path(config, "company_validation_results.csv"),
+    )
+
+    extracted_rows = list(crawl_extracted_rows)
     extracted_rows.extend(build_csv_geo_evidence(input_df, validation_settings))
+    extracted_rows.extend(validation_evidence_rows)
     geo_prefill_path = output_path(config, "geo_prefill.parquet")
 
     if validation_settings.get("enabled", True) is False:
@@ -311,6 +597,7 @@ def run_extract(config):
     write_parquet(extracted_df, output_path(config, "crawl_extracted_fields.parquet"))
 
     print("Extracted field rows:", len(extracted_df))
+    print("Validation result rows:", len(validation_results_df))
 
 
 # note: Attach crawl-derived evidence to company IDs and keep direct CSV evidence as-is.
@@ -390,15 +677,16 @@ def build_best_evidence(config):
         errors="coerce",
     ).fillna(0.0)
     evidence_df["source_bonus"] = evidence_df["source_type"].apply(
-        lambda value: 0.20 if value == "official" else 0.00
+        lambda value: 0.20 if value in {"official", "validation"} else 0.00
     )
     evidence_df["source_rank"] = evidence_df["source_type"].map(
         {
-            "official": 0,
-            "csv": 1,
-            "social": 2,
+            "validation": 0,
+            "official": 1,
+            "csv": 2,
+            "social": 3,
         }
-    ).fillna(3)
+    ).fillna(4)
 
     if "depth" not in evidence_df.columns:
         evidence_df["depth"] = 0
@@ -606,11 +894,306 @@ def run_merge(config):
     print("Built enriched company dataset")
 
 
+# note: Choose an ER-ready value with a field-specific confidence threshold.
+def choose_er_value(row, original_col, final_col, confidence_col, threshold):
+    original_value = row.get(original_col)
+    final_value = row.get(final_col)
+    confidence = safe_confidence(row.get(confidence_col))
+
+    if not is_missing(final_value) and confidence >= threshold:
+        return final_value, "final"
+
+    if not is_missing(original_value):
+        return original_value, "original"
+
+    if not is_missing(final_value):
+        return final_value, "final_low_confidence"
+
+    return None, "missing"
+
+
+# note: Choose enriched value only when the original field is missing.
+def choose_er_add_only_value(row, original_col, final_col, confidence_col, threshold):
+    original_value = row.get(original_col)
+    final_value = row.get(final_col)
+    confidence = safe_confidence(row.get(confidence_col))
+
+    if not is_missing(original_value):
+        return original_value, "original"
+
+    if not is_missing(final_value) and confidence >= threshold:
+        return final_value, "final_added"
+
+    if not is_missing(final_value):
+        return final_value, "final_low_confidence"
+
+    return None, "missing"
+
+
+# note: Choose original company name unless it is missing, keeping crawler names out of ER by default.
+def choose_company_name_for_er(row):
+    original_value = row.get("company_name")
+    final_value = row.get("final_company_name")
+
+    if not is_missing(original_value):
+        return original_value, "original"
+
+    if not is_missing(final_value):
+        return final_value, "final"
+
+    return None, "missing"
+
+
+# note: Choose country fields using validation-aware final country code and canonical country names.
+def choose_country_for_er(row, validation_row=None):
+    original_code = normalize_country_to_iso(row.get("main_country_code"))
+    final_code = normalize_country_to_iso(row.get("final_main_country_code"))
+    selected_code = final_code or original_code
+    selected_name = (
+        country_name_from_iso(selected_code)
+        or row.get("final_main_country")
+        or row.get("main_country")
+    )
+    source = "original"
+
+    if validation_row is not None:
+        action = validation_row.get("recommended_action")
+        voted_country = validation_row.get("voted_country")
+        if action in {"CORRECT_COUNTRY", "FILL_COUNTRY", "KEEP"} and voted_country == selected_code:
+            source = "validation"
+        elif final_code and final_code != original_code:
+            source = "enrichment"
+    elif final_code and final_code != original_code:
+        source = "enrichment"
+
+    return selected_code, selected_name, source
+
+
+# note: Add a column from the source dataframe when present, otherwise fill with blanks.
+def copy_optional_column(output_df, input_df, column_name):
+    if column_name in input_df.columns:
+        output_df[column_name] = input_df[column_name]
+    else:
+        output_df[column_name] = ""
+
+
+# note: Build the compact Databricks upload file from full enrichment output.
+def build_er_ready_frame(enriched_df, validation_results_df, config):
+    er_config = config.get("er_ready", {})
+    city_threshold = float(er_config.get("city_confidence_threshold", 0.80))
+    email_threshold = float(er_config.get("email_confidence_threshold", 0.85))
+    description_threshold = float(
+        er_config.get("description_confidence_threshold", 0.75)
+    )
+    year_founded_threshold = float(
+        er_config.get("year_founded_confidence_threshold", 0.80)
+    )
+    employee_count_threshold = float(
+        er_config.get("employee_count_confidence_threshold", 0.75)
+    )
+
+    validation_by_id = {}
+    if not validation_results_df.empty:
+        validation_by_id = {
+            str(row.get("Applications_of_AI_id")): row
+            for _, row in validation_results_df.iterrows()
+        }
+
+    output_df = pd.DataFrame()
+    for column_name in [
+        "input_row_key",
+        "Applications_of_AI_id",
+        "input_company_name",
+        "input_main_country_code",
+        "input_main_country",
+        "input_main_region",
+        "input_main_city",
+        "input_main_postcode",
+        "input_main_street",
+        "input_main_street_number",
+    ]:
+        copy_optional_column(output_df, enriched_df, column_name)
+
+    company_names = enriched_df.apply(choose_company_name_for_er, axis=1)
+    output_df["company_name"] = [value for value, _ in company_names]
+    output_df["company_name_source"] = [source for _, source in company_names]
+
+    for column_name in ["company_legal_names", "company_commercial_names"]:
+        copy_optional_column(output_df, enriched_df, column_name)
+
+    country_values = []
+    for _, row in enriched_df.iterrows():
+        validation_row = validation_by_id.get(str(row.get("Applications_of_AI_id")))
+        country_values.append(choose_country_for_er(row, validation_row))
+
+    output_df["main_country_code"] = [value[0] for value in country_values]
+    output_df["main_country"] = [value[1] for value in country_values]
+    output_df["country_source"] = [value[2] for value in country_values]
+
+    for column_name in ["main_region", "main_postcode", "main_street"]:
+        copy_optional_column(output_df, enriched_df, column_name)
+
+    city_values = enriched_df.apply(
+        lambda row: choose_er_value(
+            row,
+            "main_city",
+            "final_main_city",
+            "extracted_main_city_confidence",
+            city_threshold,
+        ),
+        axis=1,
+    )
+    output_df["main_city"] = [value for value, _ in city_values]
+    output_df["city_source"] = [source for _, source in city_values]
+
+    email_values = enriched_df.apply(
+        lambda row: choose_er_value(
+            row,
+            "primary_email",
+            "final_primary_email",
+            "extracted_primary_email_confidence",
+            email_threshold,
+        ),
+        axis=1,
+    )
+    output_df["primary_email"] = [value for value, _ in email_values]
+    output_df["email_source"] = [source for _, source in email_values]
+
+    copy_optional_column(output_df, enriched_df, "primary_phone")
+
+    description_values = enriched_df.apply(
+        lambda row: choose_er_value(
+            row,
+            "short_description",
+            "final_short_description",
+            "extracted_short_description_confidence",
+            description_threshold,
+        ),
+        axis=1,
+    )
+    output_df["short_description"] = [value for value, _ in description_values]
+    output_df["description_source"] = [source for _, source in description_values]
+
+    year_founded_values = enriched_df.apply(
+        lambda row: choose_er_add_only_value(
+            row,
+            "year_founded",
+            "final_year_founded",
+            "extracted_year_founded_confidence",
+            year_founded_threshold,
+        ),
+        axis=1,
+    )
+    output_df["year_founded"] = [value for value, _ in year_founded_values]
+    output_df["year_founded_source"] = [source for _, source in year_founded_values]
+
+    employee_count_values = enriched_df.apply(
+        lambda row: choose_er_add_only_value(
+            row,
+            "employee_count",
+            "final_employee_count",
+            "extracted_employee_count_confidence",
+            employee_count_threshold,
+        ),
+        axis=1,
+    )
+    output_df["employee_count"] = [value for value, _ in employee_count_values]
+    output_df["employee_count_source"] = [source for _, source in employee_count_values]
+
+    for column_name in [
+        "generated_description",
+        "generated_business_tags",
+        "long_description",
+        "business_tags",
+        "main_business_category",
+        "main_industry",
+        "main_sector",
+        "company_type",
+        "revenue",
+        "website_url",
+        "website_domain",
+        "website_tld",
+        "website_language_code",
+        "linkedin_url",
+        "facebook_url",
+        "twitter_url",
+        "instagram_url",
+        "youtube_url",
+        "naics_2022_primary_code",
+        "naics_2022_primary_label",
+        "naics_2022_secondary_codes",
+        "naics_2022_secondary_labels",
+        "sic_codes",
+        "sic_labels",
+        "nace_rev2_codes",
+        "nace_rev2_labels",
+        "isic_v4_codes",
+        "isic_v4_labels",
+    ]:
+        if column_name in enriched_df.columns:
+            output_df[column_name] = enriched_df[column_name]
+
+    if validation_by_id:
+        validation_slim = validation_results_df.drop_duplicates(
+            subset=["Applications_of_AI_id"]
+        )[
+            [
+                "Applications_of_AI_id",
+                "verdict",
+                "vote_confidence",
+                "final_method",
+                "recommended_action",
+            ]
+        ].rename(
+            columns={
+                "verdict": "country_validation_verdict",
+                "vote_confidence": "country_validation_confidence",
+                "final_method": "country_validation_method",
+                "recommended_action": "country_validation_action",
+            }
+        )
+        output_df = output_df.merge(
+            validation_slim,
+            on="Applications_of_AI_id",
+            how="left",
+        )
+    else:
+        output_df["country_validation_verdict"] = ""
+        output_df["country_validation_confidence"] = ""
+        output_df["country_validation_method"] = ""
+        output_df["country_validation_action"] = ""
+
+    output_df["source_enrichment_file"] = "data_enriched.csv"
+    return output_df
+
+
+def run_export_er_ready(config):
+    ensure_output_dir(config)
+
+    enriched_path = output_path(config, "data_enriched.parquet")
+    validation_path = output_path(config, "company_validation_results.parquet")
+    enriched_df = read_parquet(enriched_path)
+
+    if os.path.exists(validation_path):
+        validation_results_df = read_parquet(validation_path)
+    else:
+        validation_results_df = pd.DataFrame(columns=VALIDATION_RESULT_COLUMNS)
+
+    er_ready_df = build_er_ready_frame(enriched_df, validation_results_df, config)
+    write_parquet(er_ready_df, output_path(config, "data_er_ready.parquet"))
+    write_csv(er_ready_df, output_path(config, "data_er_ready.csv"))
+
+    print("Built ER-ready dataset")
+    print("ER-ready rows:", len(er_ready_df))
+    print("ER-ready columns:", len(er_ready_df.columns))
+
+
 def run_all(config, limit=None):
     run_build_manifest(config)
     run_crawl(config, limit=limit)
     run_extract(config)
     run_merge(config)
+    run_export_er_ready(config)
 
 
 def main():
@@ -622,6 +1205,7 @@ def main():
             "crawl",
             "extract",
             "merge",
+            "export-er-ready",
             "run-all",
         ],
     )
@@ -649,6 +1233,9 @@ def main():
 
     elif args.command == "merge":
         run_merge(config)
+
+    elif args.command == "export-er-ready":
+        run_export_er_ready(config)
 
     elif args.command == "run-all":
         run_all(config, limit=args.limit)

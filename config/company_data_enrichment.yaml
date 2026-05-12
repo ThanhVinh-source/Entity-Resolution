@@ -11,6 +11,7 @@ url_columns:
 
 crawl:
   max_concurrency: 3
+  crawl_batch_size: 100
   timeout_ms: 60000
   retry_count: 2
   cache_base_dir: dataset/silver/crawl4ai-cache
@@ -31,6 +32,27 @@ validation_signals:
   language_country_confidence: 0.55
   city_pattern_confidence: 0.60
 
+country_validation:
+  enabled: true
+  vote_confidence_threshold: 0.75
+  weak_locale_evidence_types:
+    - html_lang
+    - og_locale
+    - language
+  ignored_locale_tags:
+    - en
+    - en-US
+    - en_US
+    - english
+  locale_requires_support: true
+
+er_ready:
+  city_confidence_threshold: 0.80
+  email_confidence_threshold: 0.85
+  description_confidence_threshold: 0.75
+  year_founded_confidence_threshold: 0.80
+  employee_count_confidence_threshold: 0.75
+
 target_fields:
   - company_name
   - company_legal_names
@@ -44,3 +66,5 @@ target_fields:
   - primary_email
   - primary_phone
   - short_description
+  - year_founded
+  - employee_count

@@ -1,13 +1,20 @@
 """
-GEO-INFERENCE 
---> Infer and standardize geographic information (Country/City) from the provider.
+MODULE: GEO-INTELLIGENCE & WEIGHTED VERDICT ENGINE
+--> Task: Infer, normalize, and "verify" the geographic location (Country/City) of an entity.
 
-Core Features:
-1. ISO Standardization: Converts country names, nicknames (USA, UK), and area codes to the consistent ISO-2 standard.
-2. Multi-Signal Analysis: Combines analysis from TLDs (domain names .da, .dk), language codes (da, en), and website content.
-3. Heuristic Mapping: Uses keywords (Text Signals) and a place name dictionary to identify countries.
-4. City Extraction: Uses regular expressions (Regex) to extract cities from location phrases (Headquartered in...).
-5. Priority Logic: Prioritizes signals from country domain names before considering language factors and text keywords.
+Core features closely following the source code:
+1. Weighted Voting System: Multi-source voting mechanism to determine the winning country:
+- Weight 3.0 (Strong): Country TLD (.dk, .co) and structured data (JSON-LD).
+- Weight 2.0 (Medium): Geographic keywords in text content.
+- Weight 1.0 (Weak): Language (HTML lang) and geographic meta tags.
+2. Verdict Classification: Compare voting results with the original data to take action:
+- CONFIRMED: Keep if there is a high degree of confidence.
+- CONFLICT/CORRECT: Suggest revisions if new evidence is more convincing.
+- INSUFFICIENT: Leave as is if there is insufficient evidence for verification.
+3. Weak Locale Policy: Smart filters remove generic language signals (e.g., "en", "ar") that do not represent a specific country to avoid data interference.
+4. Smart City Selection: Automatically selects cities based on priority levels:
+- Official Source > Crawl Depth > Field Confidence.
+5. ISO-2 Mapping: Converts all variations (USA, United Kingdom, u.k) to a consistent ISO-2 standard.
 """
 
 import re
@@ -210,7 +217,7 @@ CITY_PATTERNS = [
 ]
 
 
-# note: Normalize strings before comparing country aliases, language tags, and text signals.
+# Normalize strings before comparing country aliases, language tags, and text signals.
 def normalize_lookup_value(value):
     if value is None:
         return None
@@ -249,7 +256,7 @@ COUNTRY_ALIASES.update(
 )
 
 
-# note: Convert a country name, ISO code, or locale-like value into an ISO-2 code.
+# Convert a country name, ISO code, or locale-like value into an ISO-2 code.
 def normalize_country_to_iso(value):
     if value is None:
         return None
@@ -279,7 +286,50 @@ def normalize_country_to_iso(value):
     return None
 
 
-# note: Convert an ISO-2 country code into the canonical full country name used in the enriched dataset.
+# Read locale-policy settings, defaulting to no policy when YAML does not define one.
+def locale_policy_value(policy, key):
+    if policy is None:
+        return None
+
+    return policy.get(key)
+
+
+# note: Detect locale metadata that should not independently create country evidence.
+def is_weak_locale_signal(value, evidence_type=None, locale_policy=None):
+    if value is None:
+        return False
+
+    raw_value = str(value).strip().lower()
+    normalized = normalize_lookup_value(raw_value)
+    evidence = str(evidence_type or "").lower()
+    weak_evidence_types = {
+        str(item).lower()
+        for item in (locale_policy_value(locale_policy, "weak_locale_evidence_types") or [])
+    }
+    ignored_locale_tags = {
+        str(item).strip().lower()
+        for item in (locale_policy_value(locale_policy, "ignored_locale_tags") or [])
+    }
+    ignored_normalized_tags = {
+        normalize_lookup_value(item)
+        for item in ignored_locale_tags
+        if normalize_lookup_value(item)
+    }
+
+    if raw_value in ignored_locale_tags or normalized in ignored_normalized_tags:
+        return True
+
+    if evidence in weak_evidence_types:
+        locale_requires_support = bool(
+            locale_policy_value(locale_policy, "locale_requires_support")
+        )
+        if locale_requires_support and re.fullmatch(r"[a-z]{2}[-_][a-z]{2}", raw_value):
+            return True
+
+    return False
+
+
+# Convert an ISO-2 country code into the canonical full country name used in the enriched dataset.
 def country_name_from_iso(country_code):
     if country_code is None:
         return None
@@ -287,7 +337,7 @@ def country_name_from_iso(country_code):
     return ISO_TO_COUNTRY_NAME.get(str(country_code).strip().upper())
 
 
-# note: Normalize a raw TLD value from CSV into the lookup format used by the signal maps.
+# Normalize a raw TLD value from CSV into the lookup format used by the signal maps.
 def normalize_tld(value):
     if value is None:
         return None
@@ -299,7 +349,7 @@ def normalize_tld(value):
     return tld
 
 
-# note: Extract the most specific known TLD from a URL or domain, including compound TLDs.
+# Extract the most specific known TLD from a URL or domain, including compound TLDs.
 def extract_tld_from_url(url):
     if url is None:
         return None
@@ -323,7 +373,7 @@ def extract_tld_from_url(url):
     return None
 
 
-# note: Return only strong country signals from country-specific TLDs, never from generic domains.
+# Return only strong country signals from country-specific TLDs, never from generic domains.
 def infer_strong_country_from_tld(website_tld=None, website_url=None):
     tld = normalize_tld(website_tld)
     source = "website_tld"
@@ -339,12 +389,15 @@ def infer_strong_country_from_tld(website_tld=None, website_url=None):
     return None, tld, source
 
 
-# note: Infer a weak or strong country signal from CSV metadata without crawling the web.
-def infer_country_from_csv_fields(website_tld, website_language_code):
+# Infer a weak or strong country signal from CSV metadata without crawling the web.
+def infer_country_from_csv_fields(website_tld, website_language_code, locale_policy=None):
     language = str(website_language_code or "").lower().strip().replace("_", "-")
     tld_country, _, _ = infer_strong_country_from_tld(website_tld)
     if tld_country:
         return tld_country, "tld"
+
+    if is_weak_locale_signal(language, "language", locale_policy):
+        return None, None
 
     language_parts = [part for part in language.split("-") if part]
     if len(language_parts) >= 2:
@@ -360,7 +413,216 @@ def infer_country_from_csv_fields(website_tld, website_language_code):
     return None, None
 
 
-# note: Pull a likely city from short body text snippets and address-like phrases.
+# Assign validation weight to each country signal according to the report's reliability hierarchy.
+def country_signal_weight(evidence_type=None, source_type=None):
+    evidence = str(evidence_type or "").lower()
+    source = str(source_type or "").lower()
+
+    if evidence == "tld":
+        return 3.0
+
+    if evidence in {"json_ld", "validation_vote_country"}:
+        return 3.0
+
+    if evidence in {"page_text_country", "text_keyword"}:
+        return 2.0 if source != "social" else 1.0
+
+    if evidence in {"csv_language", "language", "html_lang", "og_locale", "meta_geo"}:
+        return 1.0
+
+    return 1.0
+
+
+# Add one normalized country vote if it is usable and not disallowed by locale policy.
+def add_country_signal(
+    signals,
+    country_value,
+    method,
+    source,
+    weight,
+    evidence_text=None,
+    locale_policy=None,
+):
+    if is_weak_locale_signal(country_value, method, locale_policy):
+        return
+
+    country_code = normalize_country_to_iso(country_value)
+    if country_code is None:
+        return
+
+    signals.append(
+        {
+            "country_code": country_code,
+            "method": method,
+            "source": source,
+            "weight": float(weight),
+            "evidence_text": evidence_text,
+        }
+    )
+
+
+# Build all country votes for one company from CSV metadata and crawl-derived evidence rows.
+def build_country_signal_votes(
+    website_tld=None,
+    website_url=None,
+    website_language_code=None,
+    evidence_records=None,
+    locale_policy=None,
+):
+    signals = []
+
+    tld_country, tld, tld_source = infer_strong_country_from_tld(
+        website_tld,
+        website_url,
+    )
+    if tld_country:
+        add_country_signal(
+            signals,
+            tld_country,
+            "tld",
+            tld_source,
+            country_signal_weight("tld"),
+            f"{tld_source}={tld}",
+            locale_policy,
+        )
+
+    language_country, language_method = infer_country_from_csv_fields(
+        None,
+        website_language_code,
+        locale_policy,
+    )
+    if language_country and language_method == "language":
+        add_country_signal(
+            signals,
+            language_country,
+            "language",
+            "website_language_code",
+            country_signal_weight("language"),
+            f"website_language_code={website_language_code}",
+            locale_policy,
+        )
+
+    for record in evidence_records or []:
+        if record.get("field_name") != "main_country_code":
+            continue
+
+        evidence_type = record.get("evidence_type")
+        country_value = record.get("extracted_value")
+        evidence_text = record.get("evidence_text")
+
+        if is_weak_locale_signal(country_value, evidence_type, locale_policy):
+            continue
+
+        add_country_signal(
+            signals,
+            country_value,
+            evidence_type or "web_evidence",
+            record.get("source_type") or record.get("source_col") or "crawl",
+            country_signal_weight(evidence_type, record.get("source_type")),
+            evidence_text,
+            locale_policy,
+        )
+
+    return signals
+
+
+# Choose the weighted-vote country winner and expose confidence plus traceable signal details.
+def choose_country_vote(signals):
+    if not signals:
+        return {
+            "voted_country": None,
+            "vote_confidence": 0.0,
+            "final_method": None,
+            "all_signals": [],
+        }
+
+    votes = {}
+    for signal in signals:
+        country_code = signal["country_code"]
+        votes[country_code] = votes.get(country_code, 0.0) + signal["weight"]
+
+    total_weight = sum(votes.values())
+    voted_country = max(votes, key=votes.get)
+    vote_confidence = votes[voted_country] / total_weight if total_weight else 0.0
+    winning_signals = [
+        signal for signal in signals if signal["country_code"] == voted_country
+    ]
+    strongest_signal = sorted(
+        winning_signals,
+        key=lambda signal: signal["weight"],
+        reverse=True,
+    )[0]
+
+    return {
+        "voted_country": voted_country,
+        "vote_confidence": round(vote_confidence, 2),
+        "final_method": strongest_signal["method"],
+        "all_signals": signals,
+    }
+
+
+# Classify the validation outcome by comparing the original main_country_code
+# with the country voted from TLD, language, JSON-LD, and web-text signals.
+# The function decides whether to keep the original country, fill a missing country,
+# correct a conflicting country, or send uncertain conflicts to manual review.
+def classify_country_verdict(
+    db_country,
+    voted_country,
+    vote_confidence,
+    final_method,
+    confidence_threshold=0.75,
+):
+    db_country_code = normalize_country_to_iso(db_country)
+
+    if voted_country is None:
+        return "insufficient_data", "NO_ACTION"
+
+    if db_country_code is None:
+        if vote_confidence >= confidence_threshold:
+            return "MISSING_FILLED", "FILL_COUNTRY"
+        return "insufficient_data", "NO_ACTION"
+
+    if vote_confidence < confidence_threshold:
+        if voted_country == db_country_code:
+            return "PARTIAL_CONFIRMED", "KEEP"
+        return "CONFLICT_UNCERTAIN", "REVIEW"
+
+    if voted_country == db_country_code:
+        return "CONFIRMED", "KEEP"
+
+    if final_method == "tld":
+        return "CONFLICT_TLD", "CORRECT_COUNTRY"
+
+    return "CONFLICT", "CORRECT_COUNTRY"
+
+
+# Select a representative city from crawl evidence, preferring higher confidence and official sources.
+def choose_city_signal(evidence_records=None):
+    city_records = [
+        record
+        for record in evidence_records or []
+        if record.get("field_name") == "main_city" and record.get("extracted_value")
+    ]
+    if not city_records:
+        return None, None, None
+
+    def sort_key(record):
+        source_rank = 0 if record.get("source_type") == "official" else 1
+        try:
+            confidence = float(record.get("field_confidence") or 0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        try:
+            depth = float(record.get("depth") or 0)
+        except (TypeError, ValueError):
+            depth = 0.0
+        return (-confidence, source_rank, depth)
+
+    best = sorted(city_records, key=sort_key)[0]
+    return best.get("extracted_value"), best.get("evidence_type"), best.get("evidence_text")
+
+
+# Pull a likely city from short body text snippets and address-like phrases.
 def extract_city(text):
     if not text:
         return None
@@ -373,7 +635,7 @@ def extract_city(text):
     return None
 
 
-# note: Extract country and city evidence from title, metadata, markdown, and cleaned page text.
+# Extract country and city evidence from title, metadata, markdown, and cleaned page text.
 def extract_country_city_from_text(text, title=None, url=None):
     full_text = " ".join(
         str(value)

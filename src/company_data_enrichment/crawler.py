@@ -1,14 +1,16 @@
 """
-ASYNCHRONOUS SMART CRAWLER (Crawl4AI)
+MODULE: ASYNCHRONOUS STEALTH CRAWLER (Crawl4AI Engine)
+-->Task: Collect raw data (Markdown, HTML, Metadata) for Entity Resolution.
 
---> Collect raw data (Markdown, HTML, Metadata) from a list of vendor URLs.
+Operating Mechanism & Main Features:
+1. BFS Deep Crawling: Uses a Breadth-First Search strategy to automatically crawl subpages (About, Contact) based on depth and pre-configured maximum pages (max_pages).
+2. Smart URL Filtering: The URLPatternFilter actively removes junk pages, security pages (login, signup, cart, privacy), and static file formats (.jpg, .zip) to optimize resources.
+3. Concurrency & Stealth:
+- Controls flow using Semaphore (max_concurrency) to prevent network congestion or IP blocking.
+- Runs Chromium browser in incognito (Headless) mode. Stealth Mode and User Simulation.
+4. Robust Data Flattening: Converts crawl results (success or failure) into a consistent flatbed structure, making it easier to integrate into Spark/Pandas.
+5. Persistent Caching: Automatically manages the cache in the 'silver' directory, supporting data reuse and minimizing the number of duplicate requests.
 
-Core Features:
-1. Deep Crawling (BFS): Automatically crawls subpages (About, Contact) to find more evidence.
-2. Smart Filtering: Intelligent URL filtering removes junk pages (Login, Cart, Media, Sign In, Sign Up) to reduce noise.
-3. High Performance: Runs asynchronously (Async) with Semaphore control to avoid IP blocking.
-4. Robustness: Integrates Caching (resource saving) and Error Handling (detailed error logging).
-5. Data Flattening: Standardizes all results into table structure to prepare for Extract and Merge.
 """
 
 import asyncio
@@ -171,6 +173,25 @@ def flatten_crawl_result(record, crawl_result, fetched_at):
     return rows
 
 
+# Split seed URLs into smaller groups so Chromium does not need to keep one context alive for the whole dataset.
+def chunk_records(records, batch_size=None):
+    records = list(records)
+
+    if not records:
+        return
+
+    if batch_size is None:
+        batch_size = len(records)
+
+    batch_size = int(batch_size)
+
+    if batch_size <= 0:
+        batch_size = len(records)
+
+    for start_index in range(0, len(records), batch_size):
+        yield records[start_index:start_index + batch_size]
+
+
 # Asynchronously crawl a list of records with concurrency control, returning a list of results that include the crawl success status, fetched content, and any error messages
 # Use async to allow for concurrent crawling of multiple URLs, improving efficiency while respecting the maximum concurrency limit and handling timeouts appropriately
 async def crawl_records_async(
@@ -183,8 +204,10 @@ async def crawl_records_async(
     deep_crawl_max_depth=1,
     deep_crawl_max_pages=5,
     deep_crawl_include_external=False,
+    batch_size=None,
 ):
     cache_base_dir = resolve_cache_base_dir(cache_base_dir)
+    all_results = []
 
     browser_config = BrowserConfig(
         browser_type="chromium",
@@ -194,48 +217,63 @@ async def crawl_records_async(
         use_managed_browser=False
     )
 
-    semaphore = asyncio.Semaphore(max_concurrency)
+    for record_batch in chunk_records(records, batch_size=batch_size):
+        batch_results = None
+        semaphore = asyncio.Semaphore(max_concurrency)
+        crawler_context = AsyncWebCrawler(
+            config=browser_config,
+            base_directory=cache_base_dir,
+        )
 
-    try:
-        crawler_context = AsyncWebCrawler(config=browser_config, base_directory=cache_base_dir)
+        try:
+            async with crawler_context as crawler:
 
-        async with crawler_context as crawler:
+                async def crawl_one(record):
+                    url = record["canonical_url"]
+                    fetched_at = datetime.now(timezone.utc).isoformat()
+                    run_config = build_run_config(
+                        timeout_ms=timeout_ms,
+                        retry_count=retry_count,
+                        deep_crawl_enabled=should_deep_crawl_record(
+                            record,
+                            deep_crawl_enabled=deep_crawl_enabled,
+                        ),
+                        deep_crawl_max_depth=deep_crawl_max_depth,
+                        deep_crawl_max_pages=deep_crawl_max_pages,
+                        deep_crawl_include_external=deep_crawl_include_external,
+                    )
 
-            async def crawl_one(record):
-                url = record["canonical_url"]
-                fetched_at = datetime.now(timezone.utc).isoformat()
-                run_config = build_run_config(
-                    timeout_ms=timeout_ms,
-                    retry_count=retry_count,
-                    deep_crawl_enabled=should_deep_crawl_record(
-                        record,
-                        deep_crawl_enabled=deep_crawl_enabled,
-                    ),
-                    deep_crawl_max_depth=deep_crawl_max_depth,
-                    deep_crawl_max_pages=deep_crawl_max_pages,
-                    deep_crawl_include_external=deep_crawl_include_external,
+                    async with semaphore:
+                        try:
+                            result = await crawler.arun(url=url, config=run_config)
+                            return flatten_crawl_result(record, result, fetched_at)
+
+                        except Exception as exc:
+                            return [build_failure_row(record, str(exc))]
+
+                tasks = [crawl_one(record) for record in record_batch]
+                result_batches = await asyncio.gather(
+                    *tasks,
+                    return_exceptions=True,
                 )
+                batch_results = []
 
-                async with semaphore:
-                    try:
-                        result = await crawler.arun(url=url, config=run_config)
-                        return flatten_crawl_result(record, result, fetched_at)
+                for record, result_batch in zip(record_batch, result_batches):
+                    if isinstance(result_batch, Exception):
+                        batch_results.append(build_failure_row(record, str(result_batch)))
+                    else:
+                        batch_results.extend(result_batch)
 
-                    except Exception as exc:
-                        return [build_failure_row(record, str(exc))]
+        except Exception as exc:
+            if batch_results is None:
+                batch_results = [
+                    build_failure_row(record, str(exc))
+                    for record in record_batch
+                ]
 
-            tasks = [crawl_one(record) for record in records]
-            result_batches = await asyncio.gather(*tasks)
-            results = [
-                row
-                for result_batch in result_batches
-                for row in result_batch
-            ]
+        all_results.extend(batch_results or [])
 
-    except Exception as exc:
-        results = [build_failure_row(record, str(exc)) for record in records]
-
-    return results
+    return all_results
 
 # Synchronous wrapper for the asynchronous crawl_records_async function, allowing it to be called in a blocking manner from non-async code while still leveraging the benefits of async crawling under the hood
 def crawl_records(
@@ -248,6 +286,7 @@ def crawl_records(
     deep_crawl_max_depth=1,
     deep_crawl_max_pages=5,
     deep_crawl_include_external=False,
+    batch_size=None,
 ):
     return asyncio.run(
         crawl_records_async(
@@ -260,5 +299,6 @@ def crawl_records(
             deep_crawl_max_depth=deep_crawl_max_depth,
             deep_crawl_max_pages=deep_crawl_max_pages,
             deep_crawl_include_external=deep_crawl_include_external,
+            batch_size=batch_size,
         )
     )

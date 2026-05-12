@@ -1,13 +1,19 @@
 """
-MULTI-SOURCE EVIDENCE EXTRACTOR (V2.0)
---> Extract and normalize entity information (Name, Email, Phone Number, Location) from web content.
+MODULE: MULTI-SOURCE EVIDENCE EXTRACTOR
+--> Task: Transform chaotic web content into structured and quantifiable "Evidence".
 
-Core Features:
-1. Hybrid Extraction: Combines extraction from structured data (JSON-LD), metadata, and raw text (Markdown).
-2. Geo-Intelligence: Integrates a module for identifying countries/cities and automatically normalizes to ISO-2 encoding.
-3. Confidence Scoring: Flexible confidence scoring system based on evidence sources (JSON-LD > Meta > Text).
-4. Audit Traceability: Applies contextual stamps (original URL, website source, crawl depth) to each data field.
-5. Robust Cleaning: Removes noise from HTML (nav, footer, scripts) to increase accuracy in information recognition.
+Core features closely following source code:
+1. Multi-Layer Extraction:
+- Structured: In-depth extraction from JSON-LD (Organization, Corporation, LocalBusiness).
+- Semi-Structured: Extracts Meta tags (OG, Placename, Language) and HTML Title.
+- Unstructured: Uses Regex for Email, Phone, Year Founded, and Employee Count from Markdown.
+2. Cleaning:
+- Removes noise from navigation tags (nav, footer, header) before processing displayed text.
+- Normalizes Title to remove suffixes.
+3. Deterministic Geo-Mapping: Integrates with geo_signals to convert all geographic clues to ISO-2 standard, directly supporting the step Country match in the ER process.
+4. Weighted Confidence Scoring: Apply the default confidence coefficient (JSON-LD 0.90 > Text 0.65) as input for the entity scoring model.
+5. Evidence Provenance: Tag the Context (origin URL, crawl depth, source type) for each data field to facilitate explainability.
+
 """
 
 import json
@@ -18,12 +24,30 @@ from bs4 import BeautifulSoup
 from company_data_enrichment.geo_signals import (
     country_name_from_iso,
     extract_country_city_from_text,
+    is_weak_locale_signal,
     normalize_country_to_iso,
 )
 
 
 EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.\w+")
 PHONE_RE = re.compile(r"(\+?\d[\d\s().-]{7,}\d)")
+YEAR_RE = re.compile(r"\b(18\d{2}|19\d{2}|20\d{2})\b")
+FOUNDED_RE = re.compile(
+    r"\b(?:founded|established|founded in|established in|since)\D{0,20}"
+    r"(18\d{2}|19\d{2}|20\d{2})\b",
+    re.IGNORECASE,
+)
+EMPLOYEE_RE = re.compile(
+    r"\b(?:employees?|staff|team members?|people|workforce)\D{0,20}"
+    r"(\d{1,3}(?:[,\s]\d{3})+|\d{1,7})(?:\s*[-+]\s*)?"
+    r"(?:employees?|people|staff|team members?|workforce)?\b",
+    re.IGNORECASE,
+)
+EMPLOYEE_TRAILING_RE = re.compile(
+    r"\b(\d{1,3}(?:[,\s]\d{3})+|\d{1,7})\s*"
+    r"(?:employees?|people|staff|team members?)\b",
+    re.IGNORECASE,
+)
 
 DEFAULT_VALIDATION_CONFIG = {
     "jsonld_country_confidence": 0.90,
@@ -31,6 +55,7 @@ DEFAULT_VALIDATION_CONFIG = {
     "language_country_confidence": 0.55,
     "city_pattern_confidence": 0.60,
 }
+
 
 # PREPROCESSING AND NORMALIZATION FUNCTIONS
 # Clean and normalize text values by removing extra whitespace, converting to uppercase, and stripping non-alphanumeric characters to create consistent data for matching and comparison
@@ -54,7 +79,90 @@ def clean_title(value):
     return clean_text(parts[0])
 
 
-# note: Read validation confidence values from config while keeping stable defaults for tests and ad hoc calls.
+# note: Extract a four-digit founding year from structured or text values.
+def extract_year(value):
+    value = clean_text(value)
+    if value is None:
+        return None
+
+    match = YEAR_RE.search(value)
+    if not match:
+        return None
+
+    return match.group(1)
+
+
+# note: Normalize employee-count values from JSON-LD numbers, ranges, or text snippets.
+def clean_employee_count(value):
+    if value is None:
+        return None
+
+    if isinstance(value, dict):
+        for key in ["value", "minValue", "maxValue"]:
+            cleaned = clean_employee_count(value.get(key))
+            if cleaned:
+                return cleaned
+        return None
+
+    if isinstance(value, list):
+        for item in value:
+            cleaned = clean_employee_count(item)
+            if cleaned:
+                return cleaned
+        return None
+
+    text = clean_text(value)
+    if text is None:
+        return None
+
+    range_match = re.search(
+        r"(\d{1,3}(?:[,\s]\d{3})+|\d{1,7})\s*[-–]\s*"
+        r"(\d{1,3}(?:[,\s]\d{3})+|\d{1,7})",
+        text,
+    )
+    if range_match:
+        return (
+            range_match.group(1).replace(" ", "").replace(",", "")
+            + "-"
+            + range_match.group(2).replace(" ", "").replace(",", "")
+        )
+
+    number_match = re.search(r"\d{1,3}(?:[,\s]\d{3})+|\d{1,7}", text)
+    if number_match:
+        return number_match.group(0).replace(" ", "").replace(",", "")
+
+    return None
+
+
+# note: Extract a founded-year hint from visible text when no structured value exists.
+def extract_year_founded_from_text(text):
+    text = clean_text(text)
+    if text is None:
+        return None
+
+    match = FOUNDED_RE.search(text)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+# note: Extract an employee-count hint from visible text.
+def extract_employee_count_from_text(text):
+    text = clean_text(text)
+    if text is None:
+        return None
+
+    match = EMPLOYEE_RE.search(text)
+    if not match:
+        match = EMPLOYEE_TRAILING_RE.search(text)
+        if not match:
+            return None
+
+    return clean_employee_count(match.group(1))
+
+
+# Read validation confidence values from config while keeping stable defaults for tests and ad hoc calls.
 def confidence_value(validation_config, key):
     if validation_config is None:
         validation_config = {}
@@ -62,7 +170,15 @@ def confidence_value(validation_config, key):
     return float(validation_config.get(key, DEFAULT_VALIDATION_CONFIG[key]))
 
 
-# note: Convert any country evidence into both ISO code and canonical country-name fields when possible.
+# Read locale policy from validation config without forcing callers to pass the whole pipeline config.
+def locale_policy(validation_config):
+    if validation_config is None:
+        return None
+
+    return validation_config.get("locale_policy")
+
+
+# Convert any country evidence into both ISO code and canonical country-name fields when possible.
 def make_country_fields(canonical_url, country_value, evidence_type, confidence, evidence_text=None):
     rows = []
     country_code = normalize_country_to_iso(country_value)
@@ -164,6 +280,9 @@ def extract_geo_from_meta(canonical_url, soup, validation_config):
 
         content = tag.get("content")
         evidence_type = tag.get("evidence_type", "meta_geo")
+        if is_weak_locale_signal(content, evidence_type, locale_policy(validation_config)):
+            continue
+
         confidence = text_country_confidence
         if evidence_type == "html_lang" or "locale" in str(content).lower():
             confidence = language_country_confidence
@@ -302,6 +421,28 @@ def extract_from_jsonld(canonical_url, data, validation_config=None):
             item.get("telephone"),
             "json_ld",
             0.80,
+        )
+        if field:
+            rows.append(field)
+
+        field = make_field(
+            canonical_url,
+            "year_founded",
+            extract_year(item.get("foundingDate") or item.get("foundingYear")),
+            "json_ld",
+            0.85,
+            item.get("foundingDate") or item.get("foundingYear"),
+        )
+        if field:
+            rows.append(field)
+
+        field = make_field(
+            canonical_url,
+            "employee_count",
+            clean_employee_count(item.get("numberOfEmployees")),
+            "json_ld",
+            0.80,
+            item.get("numberOfEmployees"),
         )
         if field:
             rows.append(field)
@@ -459,6 +600,32 @@ def extract_from_html(crawl_row, validation_config=None):
             geo["city"],
             "page_text_city",
             confidence_value(validation_config, "city_pattern_confidence"),
+            geo_text,
+        )
+        if field:
+            rows.append(field)
+
+    founded_year = extract_year_founded_from_text(geo_text)
+    if founded_year:
+        field = make_field(
+            canonical_url,
+            "year_founded",
+            founded_year,
+            "page_text",
+            0.65,
+            geo_text,
+        )
+        if field:
+            rows.append(field)
+
+    employee_count = extract_employee_count_from_text(geo_text)
+    if employee_count:
+        field = make_field(
+            canonical_url,
+            "employee_count",
+            employee_count,
+            "page_text",
+            0.60,
             geo_text,
         )
         if field:
