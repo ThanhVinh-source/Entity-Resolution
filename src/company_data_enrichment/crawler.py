@@ -20,6 +20,47 @@ from datetime import datetime, timezone
 
 from crawl4ai import AsyncWebCrawler, BFSDeepCrawlStrategy, BrowserConfig, CrawlerRunConfig, FilterChain, URLPatternFilter
 
+BLOCKED_DEEP_CRAWL_PATTERNS = [
+    "*login*",
+    "*signin*",
+    "*sign-in*",
+    "*sign_in*",
+    "*sign up*",
+    "*sign-up*",
+    "*sign_up*",
+    "*signup*",
+    "*register*",
+    "*account*",
+    "*/user/*",
+    "*password*",
+    "*forgot*",
+    "*forgotpassword*",
+    "*reset-password*",
+    "*cart*",
+    "*checkout*",
+    "*privacy*",
+    "*cookie*",
+    "*terms*",
+    "*.jpg*",
+    "*.jpeg*",
+    "*.png*",
+    "*.gif*",
+    "*.svg*",
+    "*.pdf*",
+    "*.doc*",
+    "*.docx*",
+    "*.xls*",
+    "*.xlsx*",
+    "*.ppt*",
+    "*.pptx*",
+    "*.csv*",
+    "*.zip*",
+    "*.rar*",
+    "*.7z*",
+    "*registration*",
+    "*subscriptions*",
+]
+
 # Utility function to safely get an attribute from an object, returning None if any exception occurs 
 def safe_getattr(obj, name):
     try:
@@ -79,35 +120,7 @@ def build_run_config(
 
     if deep_crawl_enabled:
         blocked_url_filter = URLPatternFilter(
-            patterns=[
-                "*login*",
-                "*signin*",
-                "*sign-in*",
-                "*sign_in*",
-                "*sign up*",
-                "*sign-up*",
-                "*sign_up*",
-                "*signup*",
-                "*register*",
-                "*account*",
-                "*/user/*",
-                "*password*",
-                "*forgot*",
-                "*forgotpassword*",
-                "*reset-password*",
-                "*cart*",
-                "*checkout*",
-                "*privacy*",
-                "*cookie*",
-                "*terms*",
-                "*.jpg",
-                "*.jpeg",
-                "*.png",
-                "*.gif",
-                "*.zip",
-                "*registration*",
-                "*subscriptions*"
-            ],
+            patterns=BLOCKED_DEEP_CRAWL_PATTERNS,
             reverse=True,
         )
 
@@ -173,23 +186,31 @@ def flatten_crawl_result(record, crawl_result, fetched_at):
     return rows
 
 
-# Split seed URLs into smaller groups so Chromium does not need to keep one context alive for the whole dataset.
-def chunk_records(records, batch_size=None):
+# Split records into browser lifecycle windows so Chromium can be restarted periodically without changing the crawl output schema.
+def iter_browser_windows(records, recycle_every=None):
     records = list(records)
 
     if not records:
         return
 
-    if batch_size is None:
-        batch_size = len(records)
+    if recycle_every is None:
+        recycle_every = len(records)
 
-    batch_size = int(batch_size)
+    recycle_every = int(recycle_every)
 
-    if batch_size <= 0:
-        batch_size = len(records)
+    if recycle_every <= 0:
+        recycle_every = len(records)
 
-    for start_index in range(0, len(records), batch_size):
-        yield records[start_index:start_index + batch_size]
+    for start_index in range(0, len(records), recycle_every):
+        end_index = min(start_index + recycle_every, len(records))
+        window_number = (start_index // recycle_every) + 1
+
+        yield (
+            window_number,
+            start_index + 1,
+            end_index,
+            records[start_index:end_index],
+        )
 
 
 # Asynchronously crawl a list of records with concurrency control, returning a list of results that include the crawl success status, fetched content, and any error messages
@@ -198,14 +219,16 @@ async def crawl_records_async(
     records,
     max_concurrency=5,
     timeout_ms=30000,
+    seed_timeout_ms=None,
     retry_count=0,
     cache_base_dir=None,
+    browser_recycle_every=None,
     deep_crawl_enabled=False,
     deep_crawl_max_depth=1,
     deep_crawl_max_pages=5,
     deep_crawl_include_external=False,
-    batch_size=None,
 ):
+    records = list(records)
     cache_base_dir = resolve_cache_base_dir(cache_base_dir)
     all_results = []
 
@@ -217,9 +240,18 @@ async def crawl_records_async(
         use_managed_browser=False
     )
 
-    for record_batch in chunk_records(records, batch_size=batch_size):
-        batch_results = None
+    for window_number, start_record, end_record, record_window in iter_browser_windows(
+        records,
+        recycle_every=browser_recycle_every,
+    ):
+        window_results = None
         semaphore = asyncio.Semaphore(max_concurrency)
+        active_seed_urls = {}
+        started_seed_count = 0
+        completed_seed_count = 0
+
+        print(f"[BROWSER] Opening window {window_number}: records {start_record}-{end_record}", flush=True)
+
         crawler_context = AsyncWebCrawler(
             config=browser_config,
             base_directory=cache_base_dir,
@@ -227,8 +259,24 @@ async def crawl_records_async(
 
         try:
             async with crawler_context as crawler:
+                print(f"[BROWSER] Opened window {window_number}", flush=True)
 
-                async def crawl_one(record):
+                async def log_window_progress():
+                    while True:
+                        await asyncio.sleep(60)
+                        pending_urls = list(active_seed_urls.values())
+                        print(
+                            f"[BROWSER] Window {window_number} still running: "
+                            f"{completed_seed_count}/{len(record_window)} seed URLs done, "
+                            f"{len(pending_urls)} active",
+                            flush=True,
+                        )
+
+                        for pending_url in pending_urls[:5]:
+                            print(f"[BROWSER] Pending seed URL: {pending_url}", flush=True)
+
+                async def crawl_one(record_number, record):
+                    nonlocal completed_seed_count, started_seed_count
                     url = record["canonical_url"]
                     fetched_at = datetime.now(timezone.utc).isoformat()
                     run_config = build_run_config(
@@ -244,34 +292,82 @@ async def crawl_records_async(
                     )
 
                     async with semaphore:
+                        started_seed_count += 1
+                        active_seed_urls[record_number] = url
                         try:
-                            result = await crawler.arun(url=url, config=run_config)
+                            if seed_timeout_ms is not None and int(seed_timeout_ms) > 0:
+                                result = await asyncio.wait_for(
+                                    crawler.arun(url=url, config=run_config),
+                                    timeout=int(seed_timeout_ms) / 1000,
+                                )
+                            else:
+                                result = await crawler.arun(url=url, config=run_config)
                             return flatten_crawl_result(record, result, fetched_at)
+
+                        except asyncio.TimeoutError:
+                            return [
+                                build_failure_row(
+                                    record,
+                                    f"Seed crawl timeout after {int(seed_timeout_ms)}ms",
+                                )
+                            ]
 
                         except Exception as exc:
                             return [build_failure_row(record, str(exc))]
 
-                tasks = [crawl_one(record) for record in record_batch]
-                result_batches = await asyncio.gather(
-                    *tasks,
-                    return_exceptions=True,
-                )
-                batch_results = []
+                        finally:
+                            completed_seed_count += 1
+                            active_seed_urls.pop(record_number, None)
 
-                for record, result_batch in zip(record_batch, result_batches):
+                tasks = [
+                    crawl_one(record_number, record)
+                    for record_number, record in enumerate(record_window, start=start_record)
+                ]
+                print(f"[BROWSER] Crawling window {window_number}: {len(tasks)} seed URLs", flush=True)
+                progress_task = asyncio.create_task(log_window_progress())
+
+                try:
+                    result_batches = await asyncio.gather(
+                        *tasks,
+                        return_exceptions=True,
+                    )
+                finally:
+                    progress_task.cancel()
+                    try:
+                        await progress_task
+                    except asyncio.CancelledError:
+                        pass
+
+                window_results = []
+
+                for record, result_batch in zip(record_window, result_batches):
                     if isinstance(result_batch, Exception):
-                        batch_results.append(build_failure_row(record, str(result_batch)))
+                        window_results.append(build_failure_row(record, str(result_batch)))
                     else:
-                        batch_results.extend(result_batch)
+                        window_results.extend(result_batch)
+
+                success_count = sum(1 for row in window_results if row.get("success"))
+                failure_count = len(window_results) - success_count
+                print(
+                    f"[BROWSER] Finished window {window_number}: "
+                    f"{len(window_results)} pages, {success_count} success, {failure_count} failed"
+                    f", {started_seed_count} seed URLs started"
+                    f", {completed_seed_count} seed URLs completed",
+                    flush=True,
+                )
+                print(f"[BROWSER] Closing window {window_number}", flush=True)
+
+            print(f"[BROWSER] Closed window {window_number}", flush=True)
 
         except Exception as exc:
-            if batch_results is None:
-                batch_results = [
+            print(f"[BROWSER] Window {window_number} failed: {exc}", flush=True)
+            if window_results is None:
+                window_results = [
                     build_failure_row(record, str(exc))
-                    for record in record_batch
+                    for record in record_window
                 ]
 
-        all_results.extend(batch_results or [])
+        all_results.extend(window_results or [])
 
     return all_results
 
@@ -280,25 +376,27 @@ def crawl_records(
     records,
     max_concurrency=5,
     timeout_ms=30000,
+    seed_timeout_ms=None,
     retry_count=0,
     cache_base_dir=None,
+    browser_recycle_every=None,
     deep_crawl_enabled=False,
     deep_crawl_max_depth=1,
     deep_crawl_max_pages=5,
     deep_crawl_include_external=False,
-    batch_size=None,
 ):
     return asyncio.run(
         crawl_records_async(
             records=records,
             max_concurrency=max_concurrency,
             timeout_ms=timeout_ms,
+            seed_timeout_ms=seed_timeout_ms,
             retry_count=retry_count,
             cache_base_dir=cache_base_dir,
+            browser_recycle_every=browser_recycle_every,
             deep_crawl_enabled=deep_crawl_enabled,
             deep_crawl_max_depth=deep_crawl_max_depth,
             deep_crawl_max_pages=deep_crawl_max_pages,
             deep_crawl_include_external=deep_crawl_include_external,
-            batch_size=batch_size,
         )
     )

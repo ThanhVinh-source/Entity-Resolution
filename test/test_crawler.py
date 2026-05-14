@@ -4,11 +4,12 @@ from crawl4ai import BFSDeepCrawlStrategy
 
 import company_data_enrichment.crawler as crawler_module
 from company_data_enrichment.crawler import (
+    BLOCKED_DEEP_CRAWL_PATTERNS,
     build_failure_row,
     build_run_config,
-    chunk_records,
     crawl_records_async,
     flatten_crawl_result,
+    iter_browser_windows,
     should_deep_crawl_record,
 )
 
@@ -55,6 +56,12 @@ def test_build_run_config_keeps_single_page_mode_when_deep_crawl_disabled():
     config = build_run_config(deep_crawl_enabled=False)
 
     assert config.deep_crawl_strategy is None
+
+
+def test_blocked_deep_crawl_patterns_skip_document_files():
+    assert "*.pdf*" in BLOCKED_DEEP_CRAWL_PATTERNS
+    assert "*.docx*" in BLOCKED_DEEP_CRAWL_PATTERNS
+    assert "*.xlsx*" in BLOCKED_DEEP_CRAWL_PATTERNS
 
 
 def test_should_deep_crawl_record_allows_official_when_enabled():
@@ -122,12 +129,16 @@ def test_build_failure_row_keeps_seed_schema():
     assert row["error_message"] == "DNS failed"
 
 
-def test_chunk_records_splits_records_by_batch_size():
-    records = [{"id": 1}, {"id": 2}, {"id": 3}]
+def test_iter_browser_windows_recycles_after_configured_record_count():
+    records = [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}, {"id": 5}]
 
-    batches = list(chunk_records(records, batch_size=2))
+    windows = list(iter_browser_windows(records, recycle_every=2))
 
-    assert batches == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
+    assert windows == [
+        (1, 1, 2, [{"id": 1}, {"id": 2}]),
+        (2, 3, 4, [{"id": 3}, {"id": 4}]),
+        (3, 5, 5, [{"id": 5}]),
+    ]
 
 
 def test_crawl_records_async_preserves_results_when_browser_close_fails(monkeypatch, tmp_path):
@@ -172,16 +183,19 @@ def test_crawl_records_async_preserves_results_when_browser_close_fails(monkeypa
     assert rows[0]["canonical_url"] == "https://example.com"
 
 
-def test_crawl_records_async_continues_after_batch_close_fails(monkeypatch, tmp_path):
+def test_crawl_records_async_recycles_browser_windows(monkeypatch, tmp_path):
+    opened_windows = []
+
     class FakeCrawler:
         def __init__(self, *args, **kwargs):
             pass
 
         async def __aenter__(self):
+            opened_windows.append(self)
             return self
 
         async def __aexit__(self, exc_type, exc, traceback):
-            raise RuntimeError("Browser.close: Connection closed while reading from the driver")
+            return False
 
         async def arun(self, url, config):
             return FakeCrawlResult(
@@ -211,17 +225,25 @@ def test_crawl_records_async_continues_after_batch_close_fails(monkeypatch, tmp_
                     "source_col": "website_url",
                     "priority": 1,
                 },
+                {
+                    "canonical_url": "https://three.example",
+                    "domain": "three.example",
+                    "source_type": "official",
+                    "source_col": "website_url",
+                    "priority": 1,
+                },
             ],
             cache_base_dir=str(tmp_path),
-            batch_size=1,
+            browser_recycle_every=2,
         )
     )
 
+    assert len(opened_windows) == 2
     assert [row["canonical_url"] for row in rows] == [
         "https://one.example",
         "https://two.example",
+        "https://three.example",
     ]
-    assert [row["success"] for row in rows] == [True, True]
 
 
 def test_crawl_records_async_records_unhandled_task_exception(monkeypatch, tmp_path):
@@ -268,7 +290,6 @@ def test_crawl_records_async_records_unhandled_task_exception(monkeypatch, tmp_p
                 },
             ],
             cache_base_dir=str(tmp_path),
-            batch_size=2,
         )
     )
 
@@ -277,3 +298,42 @@ def test_crawl_records_async_records_unhandled_task_exception(monkeypatch, tmp_p
     assert rows_by_url["https://good.example"]["success"] is True
     assert rows_by_url["https://bad.example"]["success"] is False
     assert rows_by_url["https://bad.example"]["error_message"] == "page crashed"
+
+
+def test_crawl_records_async_times_out_hung_seed_url(monkeypatch, tmp_path):
+    class FakeCrawler:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def arun(self, url, config):
+            await asyncio.sleep(1)
+            return FakeCrawlResult(url=url, success=True)
+
+    monkeypatch.setattr(crawler_module, "AsyncWebCrawler", FakeCrawler)
+
+    rows = asyncio.run(
+        crawl_records_async(
+            records=[
+                {
+                    "canonical_url": "https://slow.example",
+                    "domain": "slow.example",
+                    "source_type": "official",
+                    "source_col": "website_url",
+                    "priority": 1,
+                }
+            ],
+            cache_base_dir=str(tmp_path),
+            seed_timeout_ms=10,
+        )
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["success"] is False
+    assert rows[0]["canonical_url"] == "https://slow.example"
+    assert rows[0]["error_message"] == "Seed crawl timeout after 10ms"

@@ -11,8 +11,9 @@ url_columns:
 
 crawl:
   max_concurrency: 3
-  crawl_batch_size: 100
+  browser_recycle_every: 200
   timeout_ms: 60000
+  seed_timeout_ms: 180000
   retry_count: 2
   cache_base_dir: dataset/silver/crawl4ai-cache
   deep_crawl_enabled: true

@@ -519,8 +519,10 @@ def run_crawl(config, limit=None):
         records=records,
         max_concurrency=config["crawl"]["max_concurrency"],
         timeout_ms=config["crawl"]["timeout_ms"],
+        seed_timeout_ms=config["crawl"].get("seed_timeout_ms"),
         retry_count=config["crawl"].get("retry_count", 0),
         cache_base_dir=config["crawl"].get("cache_base_dir"),
+        browser_recycle_every=config["crawl"].get("browser_recycle_every"),
         deep_crawl_enabled=config["crawl"].get("deep_crawl_enabled", False),
         deep_crawl_max_depth=config["crawl"].get("deep_crawl_max_depth", 1),
         deep_crawl_max_pages=config["crawl"].get("deep_crawl_max_pages", 5),
@@ -528,7 +530,6 @@ def run_crawl(config, limit=None):
             "deep_crawl_include_external",
             False,
         ),
-        batch_size=config["crawl"].get("crawl_batch_size"),
     )
 
     results_df = pd.DataFrame(results)
