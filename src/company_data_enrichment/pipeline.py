@@ -513,29 +513,78 @@ def run_crawl(config, limit=None):
     if limit:
         queue_df = queue_df.head(int(limit))
 
-    records = queue_df.to_dict("records")
+    crawl_config = config.get("crawl", {})
+    reuse_previous_results = crawl_config.get("reuse_previous_results", True)
 
-    results = crawl_records(
-        records=records,
-        max_concurrency=config["crawl"]["max_concurrency"],
-        timeout_ms=config["crawl"]["timeout_ms"],
-        seed_timeout_ms=config["crawl"].get("seed_timeout_ms"),
-        retry_count=config["crawl"].get("retry_count", 0),
-        cache_base_dir=config["crawl"].get("cache_base_dir"),
-        browser_recycle_every=config["crawl"].get("browser_recycle_every"),
-        deep_crawl_enabled=config["crawl"].get("deep_crawl_enabled", False),
-        deep_crawl_max_depth=config["crawl"].get("deep_crawl_max_depth", 1),
-        deep_crawl_max_pages=config["crawl"].get("deep_crawl_max_pages", 5),
-        deep_crawl_include_external=config["crawl"].get(
-            "deep_crawl_include_external",
-            False,
-        ),
+    previous_results_path = output_path(config, "crawl_results_raw.parquet")
+
+    previous_results_df = pd.DataFrame()
+    cached_rows_df = pd.DataFrame()
+    pending_queue_df = queue_df.copy()
+
+    if reuse_previous_results and os.path.exists(previous_results_path):
+        previous_results_df = read_parquet(previous_results_path)
+
+        if not previous_results_df.empty and "seed_url" in previous_results_df.columns:
+            current_seed_urls = set(queue_df["canonical_url"].dropna().astype(str))
+            previous_seed_urls = set(previous_results_df["seed_url"].dropna().astype(str))
+
+            reused_seed_urls = current_seed_urls.intersection(previous_seed_urls)
+
+            cached_rows_df = previous_results_df[
+                previous_results_df["seed_url"].astype(str).isin(reused_seed_urls)
+            ].copy()
+
+            pending_queue_df = queue_df[
+                ~queue_df["canonical_url"].astype(str).isin(reused_seed_urls)
+            ].copy()
+
+            print("Reused previously crawled seed URLs:", len(reused_seed_urls))
+            print("Seed URLs pending crawl:", len(pending_queue_df))
+        else:
+            print("Previous crawl results found but no usable seed_url column; crawling all URLs.")
+
+    records = pending_queue_df.to_dict("records")
+
+    if records:
+        results = crawl_records(
+            records=records,
+            max_concurrency=crawl_config["max_concurrency"],
+            timeout_ms=crawl_config["timeout_ms"],
+            seed_timeout_ms=crawl_config.get("seed_timeout_ms"),
+            retry_count=crawl_config.get("retry_count", 0),
+            cache_base_dir=crawl_config.get("cache_base_dir"),
+            browser_recycle_every=crawl_config.get("browser_recycle_every"),
+            deep_crawl_enabled=crawl_config.get("deep_crawl_enabled", False),
+            deep_crawl_max_depth=crawl_config.get("deep_crawl_max_depth", 1),
+            deep_crawl_max_pages=crawl_config.get("deep_crawl_max_pages", 5),
+            deep_crawl_include_external=crawl_config.get(
+                "deep_crawl_include_external",
+                False,
+            ),
+        )
+    else:
+        results = []
+
+    new_results_df = pd.DataFrame(results)
+
+    results_df = pd.concat(
+        [cached_rows_df, new_results_df],
+        ignore_index=True,
     )
 
-    results_df = pd.DataFrame(results)
-    write_parquet(results_df, output_path(config, "crawl_results_raw.parquet"))
+    if not results_df.empty and {"seed_url", "canonical_url"}.issubset(results_df.columns):
+        results_df = results_df.drop_duplicates(
+            subset=["seed_url", "canonical_url"],
+            keep="last",
+        )
 
-    print("Crawled URLs:", len(results))
+    write_parquet(results_df, previous_results_path)
+
+    print("Crawled seed URLs this run:", len(records))
+    print("Reused crawl result rows:", len(cached_rows_df))
+    print("New crawl result rows:", len(new_results_df))
+    print("Crawl result rows available:", len(results_df))
     print_crawl_results_summary(results_df)
 
 

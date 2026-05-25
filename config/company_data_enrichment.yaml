@@ -20,6 +20,7 @@ crawl:
   deep_crawl_max_depth: 1
   deep_crawl_max_pages: 5
   deep_crawl_include_external: false
+  reuse_previous_results: true
 
 rules:
   add_threshold: 0.60
