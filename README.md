@@ -1,5 +1,49 @@
 # Entity Resolution with Company Data Enrichment and Databricks GraphRAG
 
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-Data%20Pipeline-3776AB?style=for-the-badge&logo=python&logoColor=white">
+  <img alt="pandas" src="https://img.shields.io/badge/pandas-Data%20Processing-150458?style=for-the-badge&logo=pandas&logoColor=white">
+  <img alt="Crawl4AI" src="https://img.shields.io/badge/Crawl4AI-Web%20Crawling-00A67E?style=for-the-badge&logo=github&logoColor=white">
+  <img alt="Pytest" src="https://img.shields.io/badge/pytest-Testing-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white">
+</p>
+
+<p align="center">
+  <img alt="Databricks" src="https://img.shields.io/badge/Databricks-Entity%20Resolution-FF3621?style=for-the-badge&logo=databricks&logoColor=white">
+  <img alt="PySpark" src="https://img.shields.io/badge/PySpark-Distributed%20ETL-E25A1C?style=for-the-badge&logo=apachespark&logoColor=white">
+  <img alt="Delta Lake" src="https://img.shields.io/badge/Delta%20Lake-Managed%20Tables-00A6D6?style=for-the-badge">
+  <img alt="Unity Catalog" src="https://img.shields.io/badge/Unity%20Catalog-Governance-1F6FEB?style=for-the-badge">
+</p>
+
+<p align="center">
+  <img alt="Databricks AI Search" src="https://img.shields.io/badge/AI%20Search-Vector%20Retrieval-6F42C1?style=for-the-badge">
+  <img alt="GraphRAG" src="https://img.shields.io/badge/GraphRAG-Knowledge%20Graph-2E7D32?style=for-the-badge">
+  <img alt="LLM Tie Breaker" src="https://img.shields.io/badge/LLM-Tie%20Breaker-8E44AD?style=for-the-badge">
+  <img alt="AI Playground" src="https://img.shields.io/badge/AI%20Playground-RAG%20Demo-F39C12?style=for-the-badge">
+</p>
+
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Tech Stack](#tech-stack)
+- [Repository Structure](#repository-structure)
+- [Local Setup](#local-setup)
+- [Local Enrichment Workflow](#local-enrichment-workflow)
+- [Databricks Setup](#databricks-setup)
+  - [Requirements](#1-requirements)
+  - [Create Unity Catalog Objects](#2-create-unity-catalog-objects)
+  - [Upload the ER-Ready CSV](#3-upload-the-er-ready-csv)
+  - [Import the Databricks Notebooks](#4-import-the-databricks-notebooks)
+- [Databricks Notebook Outputs](#databricks-notebook-outputs)
+- [Matching Logic](#matching-logic)
+- [GraphRAG Documents](#graphrag-documents)
+- [Create AI Search / Vector Search for AI Playground](#create-ai-search--vector-search-for-ai-playground)
+  - [Enable Change Data Feed](#1-enable-change-data-feed)
+  - [Create an AI Search Endpoint](#2-create-an-ai-search-endpoint)
+  - [Create an AI Search Index](#3-create-an-ai-search-index)
+  - [Try the Index in AI Playground](#4-try-the-index-in-ai-playground)
+- [Notes and Limitations](#notes-and-limitations)
+- [References](#references)
+
 ## Project Overview
 
 This project implements an end-to-end company entity-resolution system for matching noisy input company records to enriched candidate company records.
