@@ -552,7 +552,7 @@ Candidate scoring uses these weighted signals:
 
 ```text
 Name similarity:      0.60
-Semantic similarity:  0.10
+Semantic similarity:  0.05
 Country match:        0.20
 City match:           0.15
 ```
