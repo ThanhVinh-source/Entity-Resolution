@@ -22,10 +22,12 @@
 ## Table of Contents
 
 - [Project Overview](#project-overview)
+- [End-to-End Run Flow](#end-to-end-run-flow)
 - [Tech Stack](#tech-stack)
 - [Repository Structure](#repository-structure)
 - [Local Setup](#local-setup)
 - [Local Enrichment Workflow](#local-enrichment-workflow)
+  - [Crawling Step](#crawling-step)
 - [Databricks Setup](#databricks-setup)
   - [Requirements](#1-requirements)
   - [Create Unity Catalog Objects](#2-create-unity-catalog-objects)
@@ -52,6 +54,103 @@ The workflow first enriches raw company data using website and social URL crawli
 Inside Databricks, the project builds a full entity-resolution pipeline: it cleans company records, generates candidate pairs, scores each pair with string similarity, semantic similarity, and location signals, applies deterministic match rules, resolves ambiguous cases with an LLM tie-breaker, and creates final match/no-match/review decisions.
 
 The final layer converts decisions into a knowledge graph and GraphRAG-ready retrieval documents, allowing users to ask natural-language questions about candidate companies, match reasons, unresolved review cases, and explainability evidence through Databricks AI Playground or the project notebook workflow.
+
+## End-to-End Run Flow
+
+The full project is run in two environments: the local machine first, then Databricks.
+
+```mermaid
+flowchart TD
+    A["Local machine: project root"] --> B["Create Python environment and install dependencies"]
+    B --> C["Run local enrichment pipeline"]
+    C --> D["Generate dataset/silver/data_er_ready.csv"]
+    D --> E["Databricks: create schema and volume"]
+    E --> F["Upload data_er_ready.csv to the Databricks volume"]
+    F --> G["Import Databricks notebooks"]
+    G --> H["Create a Databricks Job with sequential notebook tasks"]
+    H --> I["Run the notebook pipeline"]
+    I --> J["Generate final decisions, graph tables, XAI table, and GraphRAG documents"]
+    J --> K["Create AI Search / Vector Search endpoint and index"]
+    K --> L["Test questions in Databricks AI Playground"]
+```
+
+Step-by-step:
+
+1. Start on your local machine from the project root directory.
+
+```bash
+cd "Entity Resolution"
+```
+
+2. Create the Python environment and install dependencies.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export PYTHONPATH="$PWD/src"
+```
+
+3. Run the local enrichment workflow.
+
+```bash
+python -m company_data_enrichment.pipeline run-all \
+  --config config/company_data_enrichment.yaml
+```
+
+4. Use the generated ER-ready file:
+
+```text
+dataset/silver/data_er_ready.csv
+```
+
+5. In Databricks, create the target Unity Catalog schema and volume.
+
+```sql
+CREATE SCHEMA IF NOT EXISTS workspace.entity_resolution_project;
+
+CREATE VOLUME IF NOT EXISTS workspace.entity_resolution_project.er_project_files;
+```
+
+6. Upload the local ER-ready file to this Databricks volume path:
+
+```text
+/Volumes/workspace/entity_resolution_project/er_project_files/data_er_ready.csv
+```
+
+7. Import the notebooks from:
+
+```text
+src/Databricks notebook/notebook/
+src/Databricks notebook/setup/
+```
+
+8. Create one Databricks Job with the notebooks as sequential tasks, using the dependency order:
+
+```text
+01_load_er_ready
+  -> 02_clean_company_er
+  -> 03_generate_candidates
+  -> 04_score_candidates
+  -> 05_decision_layer
+  -> 06_llm_tiebreaker
+  -> 07_all_candidates_decisions
+  -> 08_finalize_decisions
+  -> 09_knowledge_graph
+  -> 10_xai_explanation
+  -> 11_graphrag
+  -> enable_change_data_feed
+```
+
+9. Run the Databricks Job. This creates the final decision tables, graph tables, XAI explanation table, GraphRAG document table, and enables Change Data Feed for AI Search indexing.
+
+10. Create the Databricks AI Search / Vector Search endpoint and index over:
+
+```text
+workspace.entity_resolution_project.company_er_graphrag_documents
+```
+
+11. Open Databricks AI Playground, add the AI Search index as a tool, and test natural-language questions about matched companies, candidate lists, review cases, and explanation evidence.
 
 ## Tech Stack
 
@@ -214,6 +313,66 @@ python -m company_data_enrichment.pipeline extract --config config/company_data_
 python -m company_data_enrichment.pipeline merge --config config/company_data_enrichment.yaml
 python -m company_data_enrichment.pipeline export-er-ready --config config/company_data_enrichment.yaml
 ```
+
+### Crawling Step
+
+The crawling step is the web data collection stage of the local enrichment workflow. It uses Crawl4AI to fetch raw website and social-page content before the extractor turns that content into structured company fields.
+
+The crawl flow is:
+
+```text
+raw CSV URL columns
+  -> URL manifest
+  -> deduplicated crawl queue
+  -> Crawl4AI browser crawl
+  -> raw crawl results
+  -> extraction and merge steps
+```
+
+The URL manifest is built from the URL columns configured in `config/company_data_enrichment.yaml`:
+
+```text
+website_url
+linkedin_url
+facebook_url
+instagram_url
+twitter_url
+youtube_url
+```
+
+The crawler normalizes URLs, removes duplicates, stores the canonical URL and domain, and prioritizes official company websites before social URLs. Official website URLs can also use a shallow deep-crawl strategy to visit useful subpages such as company, contact, or about pages.
+
+The crawler is configured by the `crawl` section in `config/company_data_enrichment.yaml`, including:
+
+```text
+max_concurrency
+timeout_ms
+retry_count
+deep_crawl_enabled
+deep_crawl_max_depth
+deep_crawl_max_pages
+reuse_previous_results
+cache_base_dir
+```
+
+The crawler also filters out low-value or risky pages such as login, signup, account, cart, checkout, privacy, cookie, terms pages, and static files such as images, PDFs, archives, and office documents.
+
+Run only the crawl stage:
+
+```bash
+python -m company_data_enrichment.pipeline crawl \
+  --config config/company_data_enrichment.yaml
+```
+
+For a small crawl test:
+
+```bash
+python -m company_data_enrichment.pipeline crawl \
+  --config config/company_data_enrichment.yaml \
+  --limit 10
+```
+
+The crawling step writes raw crawl outputs under `dataset/silver`, including the crawl queue and raw crawl results. These outputs are then used by the `extract` step to identify enriched company attributes such as location, email, phone, description, and other metadata.
 
 Important generated files include:
 
