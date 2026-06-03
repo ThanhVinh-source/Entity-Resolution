@@ -557,6 +557,35 @@ Country match:        0.20
 City match:           0.15
 ```
 
+Semantic similarity is calculated with cosine similarity between the input-company embedding and the candidate-company embedding:
+
+```text
+semantic_dot =
+  sum(left_embedding_i * right_embedding_i)
+
+left_norm =
+  sqrt(sum(left_embedding_i^2))
+
+right_norm =
+  sqrt(sum(right_embedding_i^2))
+
+semantic_similarity_raw =
+  semantic_dot / (left_norm * right_norm)
+
+semantic_similarity =
+  clamp(semantic_similarity_raw, 0.0, 1.0)
+```
+
+The final composite score is then calculated as:
+
+```text
+composite_score =
+  name_similarity * 0.60
+  + semantic_similarity * 0.05
+  + country_match * 0.20
+  + city_match * 0.15
+```
+
 Deterministic decision rules:
 
 ```text
