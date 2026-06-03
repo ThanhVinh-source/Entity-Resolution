@@ -1,0 +1,431 @@
+# Entity Resolution with Company Data Enrichment and Databricks GraphRAG
+
+## Project Overview
+
+This project implements an end-to-end company entity-resolution system for matching noisy input company records to enriched candidate company records.
+
+The workflow first enriches raw company data using website and social URL crawling, rule-based extraction, geographic validation, and confidence-based merge logic. The enriched output is then exported into an entity-resolution-ready dataset and loaded into Databricks.
+
+Inside Databricks, the project builds a full entity-resolution pipeline: it cleans company records, generates candidate pairs, scores each pair with string similarity, semantic similarity, and location signals, applies deterministic match rules, resolves ambiguous cases with an LLM tie-breaker, and creates final match/no-match/review decisions.
+
+The final layer converts decisions into a knowledge graph and GraphRAG-ready retrieval documents, allowing users to ask natural-language questions about candidate companies, match reasons, unresolved review cases, and explainability evidence through Databricks AI Playground or the project notebook workflow.
+
+## Tech Stack
+
+### Local Data Enrichment
+
+- **Python**: Main local pipeline implementation.
+- **Pandas**: CSV and tabular data processing.
+- **PyArrow / Parquet**: Intermediate structured output storage.
+- **Crawl4AI**: Open-source LLM-friendly web crawler and scraper used for website and social-page crawling. This project uses the GitHub project [`unclecode/crawl4ai`](https://github.com/unclecode/crawl4ai) for web data extraction.
+- **BeautifulSoup / lxml**: HTML parsing and metadata extraction.
+- **PyYAML**: Configuration management through `config/company_data_enrichment.yaml`.
+- **Pytest**: Unit testing for pipeline, crawler, rules, extraction, and geographic signals.
+
+### Databricks Entity Resolution
+
+- **Databricks Notebooks**: Main execution environment for the entity-resolution workflow.
+- **PySpark**: Distributed data processing and table transformations.
+- **Unity Catalog**: Catalog, schema, table, and volume governance.
+- **Delta Lake**: Storage layer for all Databricks pipeline tables.
+- **Databricks Volumes**: File storage for uploading `data_er_ready.csv`.
+- **Databricks AI Functions / `ai_query`**: Batch calls to embedding and LLM endpoints.
+- **Databricks Foundation Model APIs**: LLM and embedding model access.
+- **Databricks AI Search / Vector Search**: Retrieval index for GraphRAG documents.
+- **Databricks AI Playground**: No-code testing environment for RAG and tool-calling agents.
+
+### Models and AI Components
+
+- **Embedding model**: `databricks-gte-large-en`
+- **LLM tie-breaker / GraphRAG model**: `databricks-gpt-oss-120b`
+- **GraphRAG retrieval source**: `company_er_graphrag_documents`
+- **AI Playground tool**: AI Search index over GraphRAG documents
+
+## Repository Structure
+
+```text
+config/
+  company_data_enrichment.yaml      # Enrichment and validation configuration
+
+dataset/
+  data_sample_AofAI.csv             # Raw sample input
+  silver/                           # Generated enrichment outputs
+
+docs/
+  company_data_enrichment_code_explanation*.pdf
+
+src/
+  company_data_enrichment/          # Python enrichment pipeline
+  Databricks notebook/
+    notebook/                       # Main Databricks notebooks 01-11
+    setup/                          # Databricks setup notebook for Change Data Feed
+
+test/                               # Unit tests
+requirements.txt                    # Local Python dependencies
+```
+
+## Local Setup
+
+Create and activate a Python environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export PYTHONPATH="$PWD/src"
+```
+
+Run tests:
+
+```bash
+pytest
+```
+
+## Local Enrichment Workflow
+
+The enrichment workflow is configured in:
+
+```text
+config/company_data_enrichment.yaml
+```
+
+Default input:
+
+```text
+dataset/data_sample_AofAI.csv
+```
+
+Default output directory:
+
+```text
+dataset/silver
+```
+
+Run the full local enrichment workflow:
+
+```bash
+python -m company_data_enrichment.pipeline run-all \
+  --config config/company_data_enrichment.yaml
+```
+
+For a smaller test run:
+
+```bash
+python -m company_data_enrichment.pipeline run-all \
+  --config config/company_data_enrichment.yaml \
+  --limit 10
+```
+
+You can also run each stage separately:
+
+```bash
+python -m company_data_enrichment.pipeline build-manifest --config config/company_data_enrichment.yaml
+python -m company_data_enrichment.pipeline crawl --config config/company_data_enrichment.yaml
+python -m company_data_enrichment.pipeline extract --config config/company_data_enrichment.yaml
+python -m company_data_enrichment.pipeline merge --config config/company_data_enrichment.yaml
+python -m company_data_enrichment.pipeline export-er-ready --config config/company_data_enrichment.yaml
+```
+
+Important generated files include:
+
+```text
+dataset/silver/data_enriched.csv
+dataset/silver/data_er_ready.csv
+dataset/silver/company_validation_results.csv
+```
+
+The file used by Databricks is:
+
+```text
+dataset/silver/data_er_ready.csv
+```
+
+## Databricks Setup
+
+The Databricks notebooks currently use this Unity Catalog namespace:
+
+```text
+workspace.entity_resolution_project
+```
+
+and this volume:
+
+```text
+workspace.entity_resolution_project.er_project_files
+```
+
+If you use another catalog, schema, or volume, update the first notebook and the table names in the remaining notebooks.
+
+### 1. Requirements
+
+You need:
+
+- A Databricks workspace with Unity Catalog enabled.
+- Compute that can access Unity Catalog.
+- Access to Databricks model serving or Foundation Model APIs for `ai_query`.
+- Access to the embedding and LLM endpoints used in the notebooks:
+  - `databricks-gte-large-en`
+  - `databricks-gpt-oss-120b`
+- Permissions to create tables in the target schema.
+- Permissions to create and write to a Unity Catalog volume.
+- For AI Search / Vector Search: serverless compute enabled and Change Data Feed enabled on the source Delta table.
+
+`ai_query` is used in the scoring, LLM tie-breaker, and GraphRAG notebooks. Databricks Runtime `15.4 LTS` or above is recommended for current `ai_query` workflows.
+
+### 2. Create Unity Catalog Objects
+
+Run this in a Databricks SQL editor or notebook SQL cell:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS workspace.entity_resolution_project;
+
+CREATE VOLUME IF NOT EXISTS workspace.entity_resolution_project.er_project_files;
+```
+
+If the `workspace` catalog is not available in your environment, use another catalog and update the notebooks accordingly.
+
+### 3. Upload the ER-Ready CSV
+
+Upload:
+
+```text
+dataset/silver/data_er_ready.csv
+```
+
+to:
+
+```text
+/Volumes/workspace/entity_resolution_project/er_project_files/data_er_ready.csv
+```
+
+You can upload through the Databricks UI:
+
+1. Go to **New > Add or upload data**.
+2. Select **Upload files to a volume**.
+3. Choose or paste the destination volume path.
+4. Upload `data_er_ready.csv`.
+
+### 4. Import the Databricks Notebooks
+
+Import the notebooks from:
+
+```text
+src/Databricks notebook/notebook/
+src/Databricks notebook/setup/
+```
+
+Databricks supports importing `.ipynb` notebooks.
+
+Recommended run order:
+
+```text
+01_load_er_ready.ipynb
+02_clean_company_er.ipynb
+03_generate_candidates.ipynb
+04_score_candidates.ipynb
+05_decision_layer.ipynb
+06_llm_tiebreaker.ipynb
+07_all_candidates_decisions.ipynb
+08_finalize_decisions.ipynb
+09_knowledge_graph.ipynb
+10_xai_explanation.ipynb
+11_graphrag.ipynb
+setup/enable_change_data_feed.ipynb
+```
+
+## Databricks Notebook Outputs
+
+The notebooks create these main Delta tables:
+
+```text
+workspace.entity_resolution_project.company_er_ready
+workspace.entity_resolution_project.company_er_clean
+workspace.entity_resolution_project.company_er_candidates
+workspace.entity_resolution_project.company_er_scores
+workspace.entity_resolution_project.company_er_decisions
+workspace.entity_resolution_project.company_er_llm_input
+workspace.entity_resolution_project.company_er_llm_tiebreaker
+workspace.entity_resolution_project.company_er_all_candidate_decisions
+workspace.entity_resolution_project.company_er_final_candidates
+workspace.entity_resolution_project.company_er_final_decisions
+workspace.entity_resolution_project.company_er_graph_nodes
+workspace.entity_resolution_project.company_er_graph_edges
+workspace.entity_resolution_project.company_er_xai_explanations
+workspace.entity_resolution_project.company_er_graphrag_documents
+workspace.entity_resolution_project.company_er_graphrag_retrieval_results
+workspace.entity_resolution_project.company_er_graphrag_answers
+```
+
+## Matching Logic
+
+Candidate scoring uses these weighted signals:
+
+```text
+Name similarity:      0.60
+Semantic similarity:  0.10
+Country match:        0.20
+City match:           0.15
+```
+
+Deterministic decision rules:
+
+```text
+MATCH:
+  - Top candidate score >= 0.80
+  - OR top candidate score >= 0.70 and top1-top2 score gap >= 0.05
+
+AMBIGUOUS:
+  - Top candidate score >= 0.55
+  - But it does not satisfy the MATCH rules
+
+NO_MATCH:
+  - Top candidate score < 0.55
+  - Or the candidate is not the rank-1 candidate for the input company
+```
+
+Ambiguous rank-1 candidates are sent to the LLM tie-breaker. An LLM result is accepted only when:
+
+```text
+llm_decision in (MATCH, NO_MATCH)
+llm_confidence >= 0.70
+```
+
+Otherwise, the record remains for review.
+
+## GraphRAG Documents
+
+Notebook `11_graphrag.ipynb` creates a retrieval-ready table:
+
+```text
+workspace.entity_resolution_project.company_er_graphrag_documents
+```
+
+This table contains documents for:
+
+- Final graph decisions
+- Non-top candidates
+- Exact company lookup
+- XAI explanations
+- Structured project summary
+
+The most important columns for retrieval are:
+
+```text
+doc_id
+doc_type
+context_text
+```
+
+## Create AI Search / Vector Search for AI Playground
+
+Databricks AI Search was formerly known as Databricks Vector Search. This project uses the GraphRAG document table as the source for an AI Search index.
+
+### 1. Enable Change Data Feed
+
+Run:
+
+```text
+src/Databricks notebook/setup/enable_change_data_feed.ipynb
+```
+
+This enables Change Data Feed on:
+
+```text
+workspace.entity_resolution_project.company_er_graphrag_documents
+```
+
+Change Data Feed is required for standard AI Search endpoints with Delta Sync indexes.
+
+### 2. Create an AI Search Endpoint
+
+In Databricks:
+
+1. Go to **Compute**.
+2. Open the **AI Search** tab.
+3. Click **Create endpoint**.
+4. Suggested name:
+
+```text
+er_graphrag_ai_search_endpoint
+```
+
+5. Select **Standard** for a small project or demo setup.
+6. Confirm.
+
+### 3. Create an AI Search Index
+
+In Databricks Catalog Explorer:
+
+1. Open the table:
+
+```text
+workspace.entity_resolution_project.company_er_graphrag_documents
+```
+
+2. Click **Create > Vector search index**.
+3. Suggested index name:
+
+```text
+workspace.entity_resolution_project.company_er_graphrag_documents_index
+```
+
+4. Configure:
+
+```text
+Index type: Hybrid
+Primary key: doc_id
+Embedding source: Compute embeddings
+Text column: context_text
+Vector Search endpoint: er_graphrag_ai_search_endpoint
+Sync mode: Triggered
+Columns to index: doc_id, doc_type, context_text
+```
+
+5. Create the index.
+6. If using Triggered sync, click **Sync now** after the index is created.
+
+### 4. Try the Index in AI Playground
+
+In Databricks:
+
+1. Go to **AI/ML > Playground**.
+2. Choose a model with tools enabled.
+3. Click **Tools > Add tool**.
+4. Select **AI Search**.
+5. Choose:
+
+```text
+workspace.entity_resolution_project.company_er_graphrag_documents_index
+```
+
+6. Ask questions such as:
+
+```text
+Which companies were candidates for Amazon E Store?
+Which company matched to Amazon E Store, and why?
+List the records that still need manual review.
+Explain why a candidate was not selected as the final match.
+Which suppliers were matched from multiple input company names?
+```
+
+The AI Playground agent should retrieve relevant context from the AI Search index and cite the retrieved sources.
+
+For exploratory questions, explanations, and specific review-case lookups, AI Playground works well. For exhaustive "list all" outputs, validate with SQL over the source Delta tables.
+
+## Notes and Limitations
+
+- Model endpoint names may differ by Databricks workspace or region.
+- If `ai_query` returns permission or availability errors, check model serving access and regional feature availability.
+- Notebook `11_graphrag.ipynb` has a hardcoded demo `QUESTION`; update it before rerunning manual GraphRAG inside the notebook.
+- The AI Playground flow is separate from the manual GraphRAG notebook. The notebook builds and queries retrieval context directly, while AI Playground uses the AI Search index as a tool.
+- For questions that require an exhaustive list of records, the GraphRAG chatbot may not return every item. This is mainly because retrieval returns only the top `K` most relevant documents, and the model can only answer from the retrieved context. In this project, the notebook demo uses `TOP_K = 50`, but increasing `TOP_K` still does not guarantee a complete list if relevant records are not retrieved, are ranked lower, or cannot fit into the model context. This limitation mainly affects "list all..." questions, such as listing all candidates, all suppliers, or all records in a broad category. For exact exhaustive lists, query the Delta tables directly, such as `company_er_all_candidate_decisions`, `company_er_final_decisions`, or `company_er_graphrag_documents`.
+- If the GraphRAG document schema changes, recreate the AI Search index because index schemas are fixed at creation time.
+
+## References
+
+- Databricks AI Search endpoints and indexes: https://docs.databricks.com/aws/en/ai-search/create-ai-search
+- Databricks AI Playground agents and AI Search tool: https://docs.databricks.com/aws/en/getting-started/gen-ai-llm-agent
+- Unity Catalog volumes and file upload: https://docs.databricks.com/aws/en/ingestion/file-upload/
+- Import Databricks notebooks: https://docs.databricks.com/aws/en/notebooks/notebook-export-import
+- Databricks `ai_query`: https://docs.databricks.com/aws/en/sql/language-manual/functions/ai_query
+- Crawl4AI GitHub repository: https://github.com/unclecode/crawl4ai
