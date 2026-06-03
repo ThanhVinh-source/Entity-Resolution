@@ -1,24 +1,22 @@
-# Entity Resolution with Company Data Enrichment and Databricks GraphRAG
+<h1 align="center">Entity Resolution with Company Data Enrichment and Databricks GraphRAG</h1>
 
 <p align="center">
-  <img alt="Python" src="https://img.shields.io/badge/Python-Data%20Pipeline-3776AB?style=for-the-badge&logo=python&logoColor=white">
-  <img alt="pandas" src="https://img.shields.io/badge/pandas-Data%20Processing-150458?style=for-the-badge&logo=pandas&logoColor=white">
-  <img alt="Crawl4AI" src="https://img.shields.io/badge/Crawl4AI-Web%20Crawling-00A67E?style=for-the-badge&logo=github&logoColor=white">
-  <img alt="Pytest" src="https://img.shields.io/badge/pytest-Testing-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white">
+  <img alt="pandas" src="https://img.shields.io/badge/pandas-Data%20Processing-150458?logo=pandas&logoColor=white">
+  <img alt="Crawl4AI" src="https://img.shields.io/badge/Crawl4AI-Web%20Crawling-00A67E?logo=github&logoColor=white">
+  <img alt="BeautifulSoup" src="https://img.shields.io/badge/BeautifulSoup-HTML%20Parsing-59666C">
 </p>
 
 <p align="center">
-  <img alt="Databricks" src="https://img.shields.io/badge/Databricks-Entity%20Resolution-FF3621?style=for-the-badge&logo=databricks&logoColor=white">
-  <img alt="PySpark" src="https://img.shields.io/badge/PySpark-Distributed%20ETL-E25A1C?style=for-the-badge&logo=apachespark&logoColor=white">
-  <img alt="Delta Lake" src="https://img.shields.io/badge/Delta%20Lake-Managed%20Tables-00A6D6?style=for-the-badge">
-  <img alt="Unity Catalog" src="https://img.shields.io/badge/Unity%20Catalog-Governance-1F6FEB?style=for-the-badge">
+  <img alt="Databricks" src="https://img.shields.io/badge/Databricks-Entity%20Resolution-FF3621?logo=databricks&logoColor=white">
+  <img alt="PySpark" src="https://img.shields.io/badge/PySpark-Distributed%20ETL-E25A1C?logo=apachespark&logoColor=white">
+  <img alt="Delta Lake" src="https://img.shields.io/badge/Delta%20Lake-Managed%20Tables-00A6D6">
+  <img alt="Unity Catalog" src="https://img.shields.io/badge/Unity%20Catalog-Governance-1F6FEB">
 </p>
 
 <p align="center">
-  <img alt="Databricks AI Search" src="https://img.shields.io/badge/AI%20Search-Vector%20Retrieval-6F42C1?style=for-the-badge">
-  <img alt="GraphRAG" src="https://img.shields.io/badge/GraphRAG-Knowledge%20Graph-2E7D32?style=for-the-badge">
-  <img alt="LLM Tie Breaker" src="https://img.shields.io/badge/LLM-Tie%20Breaker-8E44AD?style=for-the-badge">
-  <img alt="AI Playground" src="https://img.shields.io/badge/AI%20Playground-RAG%20Demo-F39C12?style=for-the-badge">
+  <img alt="Databricks AI Search" src="https://img.shields.io/badge/AI%20Search-Vector%20Retrieval-6F42C1">
+  <img alt="GraphRAG" src="https://img.shields.io/badge/GraphRAG-Knowledge%20Graph-2E7D32">
+  <img alt="AI Playground" src="https://img.shields.io/badge/AI%20Playground-RAG%20Demo-F39C12">
 </p>
 
 ## Table of Contents
