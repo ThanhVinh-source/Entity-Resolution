@@ -288,31 +288,6 @@ Default output directory:
 dataset/silver
 ```
 
-Run the full local enrichment workflow:
-
-```bash
-python -m company_data_enrichment.pipeline run-all \
-  --config config/company_data_enrichment.yaml
-```
-
-For a smaller test run:
-
-```bash
-python -m company_data_enrichment.pipeline run-all \
-  --config config/company_data_enrichment.yaml \
-  --limit 10
-```
-
-You can also run each stage separately:
-
-```bash
-python -m company_data_enrichment.pipeline build-manifest --config config/company_data_enrichment.yaml
-python -m company_data_enrichment.pipeline crawl --config config/company_data_enrichment.yaml
-python -m company_data_enrichment.pipeline extract --config config/company_data_enrichment.yaml
-python -m company_data_enrichment.pipeline merge --config config/company_data_enrichment.yaml
-python -m company_data_enrichment.pipeline export-er-ready --config config/company_data_enrichment.yaml
-```
-
 The crawling step is the web data collection stage of the local enrichment workflow. It uses Crawl4AI to fetch raw website and social-page content before the extractor turns that content into structured company fields.
 
 The crawl flow is:
@@ -367,6 +342,16 @@ For a small crawl test:
 python -m company_data_enrichment.pipeline crawl \
   --config config/company_data_enrichment.yaml \
   --limit 10
+```
+
+You can also run each stage separately:
+
+```bash
+python -m company_data_enrichment.pipeline build-manifest --config config/company_data_enrichment.yaml
+python -m company_data_enrichment.pipeline crawl --config config/company_data_enrichment.yaml
+python -m company_data_enrichment.pipeline extract --config config/company_data_enrichment.yaml
+python -m company_data_enrichment.pipeline merge --config config/company_data_enrichment.yaml
+python -m company_data_enrichment.pipeline export-er-ready --config config/company_data_enrichment.yaml
 ```
 
 The crawling step writes raw crawl outputs under `dataset/silver`, including the crawl queue and raw crawl results. These outputs are then used by the `extract` step to identify enriched company attributes such as location, email, phone, description, and other metadata.
