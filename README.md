@@ -60,18 +60,18 @@ The final layer converts decisions into a knowledge graph and GraphRAG-ready ret
 The full project is run in two environments: the local machine first, then Databricks.
 
 ```mermaid
-flowchart TD
-    A["Local machine: project root"] --> B["Create Python environment and install dependencies"]
-    B --> C["Run local enrichment pipeline"]
-    C --> D["Generate dataset/silver/data_er_ready.csv"]
-    D --> E["Databricks: create schema and volume"]
-    E --> F["Upload data_er_ready.csv to the Databricks volume"]
-    F --> G["Import Databricks notebooks"]
-    G --> H["Create a Databricks Job with sequential notebook tasks"]
-    H --> I["Run the notebook pipeline"]
-    I --> J["Generate final decisions, graph tables, XAI table, and GraphRAG documents"]
-    J --> K["Create AI Search / Vector Search endpoint and index"]
-    K --> L["Test questions in Databricks AI Playground"]
+flowchart LR
+    A["Local root"] --> B["Install deps"]
+    B --> C["Run enrichment"]
+    C --> D["data_er_ready.csv"]
+    D --> E["Create UC schema + volume"]
+    E --> F["Upload CSV"]
+    F --> G["Import notebooks"]
+    G --> H["Create Job"]
+    H --> I["Run Job"]
+    I --> J["ER + GraphRAG tables"]
+    J --> K["AI Search index"]
+    K --> L["AI Playground"]
 ```
 
 Step-by-step:
