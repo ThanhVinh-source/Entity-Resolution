@@ -15,3 +15,5 @@ crawl4ai-cache/
 .DS_Store
 
 *.pdf
+*.xlsx
+*.docx
