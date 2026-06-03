@@ -22,12 +22,11 @@
 ## Table of Contents
 
 - [Project Overview](#project-overview)
-- [End-to-End Run Flow](#end-to-end-run-flow)
+- [Overall Flow](#overall-flow)
 - [Tech Stack](#tech-stack)
 - [Repository Structure](#repository-structure)
 - [Local Setup](#local-setup)
-- [Local Enrichment Workflow](#local-enrichment-workflow)
-  - [Crawling Step](#crawling-step)
+- [Crawling Step](#crawling-step)
 - [Databricks Setup](#databricks-setup)
   - [Requirements](#1-requirements)
   - [Create Unity Catalog Objects](#2-create-unity-catalog-objects)
@@ -55,7 +54,7 @@ Inside Databricks, the project builds a full entity-resolution pipeline: it clea
 
 The final layer converts decisions into a knowledge graph and GraphRAG-ready retrieval documents, allowing users to ask natural-language questions about candidate companies, match reasons, unresolved review cases, and explainability evidence through Databricks AI Playground or the project notebook workflow.
 
-## End-to-End Run Flow
+## Overall Flow
 
 The full project is run in two environments: the local machine first, then Databricks.
 
@@ -269,9 +268,9 @@ Run tests:
 pytest
 ```
 
-## Local Enrichment Workflow
+## Crawling Step
 
-The enrichment workflow is configured in:
+The crawling step is part of the local enrichment workflow. The local pipeline is configured in:
 
 ```text
 config/company_data_enrichment.yaml
@@ -313,8 +312,6 @@ python -m company_data_enrichment.pipeline extract --config config/company_data_
 python -m company_data_enrichment.pipeline merge --config config/company_data_enrichment.yaml
 python -m company_data_enrichment.pipeline export-er-ready --config config/company_data_enrichment.yaml
 ```
-
-### Crawling Step
 
 The crawling step is the web data collection stage of the local enrichment workflow. It uses Crawl4AI to fetch raw website and social-page content before the extractor turns that content into structured company fields.
 
