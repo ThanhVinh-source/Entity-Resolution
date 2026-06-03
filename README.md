@@ -31,6 +31,7 @@
   - [Create Unity Catalog Objects](#2-create-unity-catalog-objects)
   - [Upload the ER-Ready CSV](#3-upload-the-er-ready-csv)
   - [Import the Databricks Notebooks](#4-import-the-databricks-notebooks)
+  - [Create a Databricks Job to Run the Notebook Pipeline](#5-create-a-databricks-job-to-run-the-notebook-pipeline)
 - [Databricks Notebook Outputs](#databricks-notebook-outputs)
 - [Matching Logic](#matching-logic)
 - [GraphRAG Documents](#graphrag-documents)
@@ -327,6 +328,59 @@ Recommended run order:
 setup/enable_change_data_feed.ipynb
 ```
 
+### 5. Create a Databricks Job to Run the Notebook Pipeline
+
+After importing the notebooks, you can create one Databricks Job so the full notebook pipeline runs in a single job run.
+
+Because each notebook writes Delta tables that are used by the next notebook, configure the tasks sequentially with dependencies instead of running them all in parallel.
+
+In Databricks:
+
+1. Go to **Jobs & Pipelines**.
+2. Click **Create job**.
+3. Name the job, for example:
+
+```text
+entity-resolution-notebook-pipeline
+```
+
+4. Add the first task:
+   - **Task type**: `Notebook`
+   - **Task name**: `01_load_er_ready`
+   - **Notebook path**: the imported `01_load_er_ready.ipynb`
+   - **Compute**: choose an existing cluster, serverless compute, or a new job cluster that can access Unity Catalog and `ai_query`
+
+5. Add the remaining notebooks as separate `Notebook` tasks. For each task, set **Depends on** to the previous notebook task so the job becomes a DAG that runs in the same order as the manual run order.
+
+Recommended task dependency chain:
+
+```text
+01_load_er_ready
+  -> 02_clean_company_er
+  -> 03_generate_candidates
+  -> 04_score_candidates
+  -> 05_decision_layer
+  -> 06_llm_tiebreaker
+  -> 07_all_candidates_decisions
+  -> 08_finalize_decisions
+  -> 09_knowledge_graph
+  -> 10_xai_explanation
+  -> 11_graphrag
+  -> enable_change_data_feed
+```
+
+6. Use the same compute configuration for all notebook tasks unless your workspace requires different compute for model-serving or AI Search preparation.
+7. Keep the default setting that allows only one concurrent run of the job. This prevents two pipeline runs from overwriting the same Delta tables at the same time.
+8. Click **Run now** to execute the full notebook pipeline once.
+
+After the job finishes successfully, the final GraphRAG document table should exist and Change Data Feed should be enabled:
+
+```text
+workspace.entity_resolution_project.company_er_graphrag_documents
+```
+
+At that point, continue with the AI Search / Vector Search index setup.
+
 ## Databricks Notebook Outputs
 
 The notebooks create these main Delta tables:
@@ -519,6 +573,10 @@ For exploratory questions, explanations, and specific review-case lookups, AI Pl
 
 - Databricks AI Search endpoints and indexes: https://docs.databricks.com/aws/en/ai-search/create-ai-search
 - Databricks AI Playground agents and AI Search tool: https://docs.databricks.com/aws/en/getting-started/gen-ai-llm-agent
+- Databricks Lakeflow Jobs configuration: https://docs.databricks.com/aws/en/jobs/configure-job
+- Databricks notebook tasks for jobs: https://docs.databricks.com/aws/en/jobs/notebook
+- Databricks task dependencies: https://docs.databricks.com/aws/en/jobs/run-if
+- Databricks Run now for jobs: https://docs.databricks.com/aws/en/jobs/run-now
 - Unity Catalog volumes and file upload: https://docs.databricks.com/aws/en/ingestion/file-upload/
 - Import Databricks notebooks: https://docs.databricks.com/aws/en/notebooks/notebook-export-import
 - Databricks `ai_query`: https://docs.databricks.com/aws/en/sql/language-manual/functions/ai_query
