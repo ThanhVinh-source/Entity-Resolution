@@ -41,6 +41,7 @@
   - [Create an AI Search Endpoint](#2-create-an-ai-search-endpoint)
   - [Create an AI Search Index](#3-create-an-ai-search-index)
   - [Try the Index in AI Playground](#4-try-the-index-in-ai-playground)
+  - [Resync After GraphRAG Document Changes](#5-resync-after-graphrag-document-changes)
 - [Notes and Limitations](#notes-and-limitations)
 - [References](#references)
 
@@ -678,16 +679,17 @@ Columns to index: doc_id, doc_type, context_text
 In Databricks:
 
 1. Go to **AI/ML > Playground**.
-2. Choose a model with tools enabled.
+2. Choose a model with tools enabled (GPT OSS 120B).
 3. Click **Tools > Add tool**.
-4. Select **AI Search**.
+4. Select **Vector Search**.
 5. Choose:
 
 ```text
 workspace.entity_resolution_project.company_er_graphrag_documents_index
 ```
+6. Copy and paste the `ANSWER_RULES` in notebook `11_graphrag.ipynb` to the System Prompt in AI Playground
 
-6. Ask questions such as:
+7. Ask questions such as:
 
 ```text
 Which companies were candidates for Amazon E Store?
@@ -700,6 +702,20 @@ Which suppliers were matched from multiple input company names?
 The AI Playground agent should retrieve relevant context from the AI Search index and cite the retrieved sources.
 
 For exploratory questions, explanations, and specific review-case lookups, AI Playground works well. For exhaustive "list all" outputs, validate with SQL over the source Delta tables.
+
+### 5. Resync After GraphRAG Document Changes
+
+If you change notebook `11_graphrag.ipynb` in a way that changes the generated GraphRAG documents, rerun the notebook or the Databricks Job and then sync the AI Search index again.
+
+Changes that do not require an AI Search sync:
+
+- Changing the demo `QUESTION`.
+- Changing notebook-only retrieval settings such as `TOP_K`.
+- Changing the manual notebook RAG prompt or answer style rules.
+
+Those fields affect the manual GraphRAG query inside the notebook, but they do not change the indexed document table used by AI Playground.
+
+If only the rows in `company_er_graphrag_documents` change, sync the existing AI Search index again. If the document table schema or indexed columns change, recreate the AI Search index so the index uses the new structure.
 
 ## Notes and Limitations
 
