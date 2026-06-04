@@ -379,6 +379,8 @@ dataset/silver/data_er_ready.csv
 
 ## Databricks Setup
 
+> **Note:** You need a Databricks account to run this part of the project. A free or trial account is enough for exploration, as long as the workspace supports the required features such as notebooks, Unity Catalog, `ai_query`, and AI Search / Vector Search.
+
 The Databricks notebooks currently use this Unity Catalog namespace:
 
 ```text
@@ -694,10 +696,12 @@ workspace.entity_resolution_project.company_er_graphrag_documents_index
 Index type: Hybrid
 Primary key: doc_id
 Embedding source: Compute embeddings
-Text column: context_text
-Vector Search endpoint: er_graphrag_ai_search_endpoint
-Sync mode: Triggered
-Columns to index: doc_id, doc_type, context_text
+Embedding source column: context_text
+Vector Search endpoint: <name of AI Search Endpoint>
+Index update mode: Triggered
+Columns to index: <blank> or all coloumns
+Advannce Setting:
+- Embedding model: databricks-gte-large-en
 ```
 
 5. Create the index.
