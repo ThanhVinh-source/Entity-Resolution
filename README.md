@@ -17,6 +17,7 @@
   <img alt="Databricks AI Search" src="https://img.shields.io/badge/AI%20Search-Vector%20Retrieval-6F42C1">
   <img alt="GraphRAG" src="https://img.shields.io/badge/GraphRAG-Knowledge%20Graph-2E7D32">
   <img alt="AI Playground" src="https://img.shields.io/badge/AI%20Playground-RAG%20Demo-F39C12">
+  <img alt="SHAP" src="https://img.shields.io/badge/SHAP-XAI%20Explanations-0052CC">
 </p>
 
 ## Table of Contents
@@ -35,6 +36,7 @@
   - [Create a Databricks Job to Run the Notebook Pipeline](#5-create-a-databricks-job-to-run-the-notebook-pipeline)
 - [Databricks Notebook Outputs](#databricks-notebook-outputs)
 - [Matching Logic](#matching-logic)
+- [XAI and SHAP Explanation Layer](#xai-and-shap-explanation-layer)
 - [GraphRAG Documents](#graphrag-documents)
 - [Create AI Search / Vector Search for AI Playground](#create-ai-search--vector-search-for-ai-playground)
   - [Enable Change Data Feed](#1-enable-change-data-feed)
@@ -53,7 +55,7 @@ The workflow first enriches raw company data using website and social URL crawli
 
 Inside Databricks, the project builds a full entity-resolution pipeline: it cleans company records, generates candidate pairs, scores each pair with string similarity, semantic similarity, and location signals, applies deterministic match rules, resolves ambiguous cases with an LLM tie-breaker, and creates final match/no-match/review decisions.
 
-The final layer converts decisions into a knowledge graph and GraphRAG-ready retrieval documents, allowing users to ask natural-language questions about candidate companies, match reasons, unresolved review cases, and explainability evidence through Databricks AI Playground or the project notebook workflow.
+The final layer converts decisions into a knowledge graph, SHAP-backed XAI explanations, and GraphRAG-ready retrieval documents, allowing users to ask natural-language questions about candidate companies, match reasons, unresolved review cases, and explainability evidence through Databricks AI Playground or the project notebook workflow.
 
 ## Overall Flow
 
@@ -121,7 +123,7 @@ CREATE VOLUME IF NOT EXISTS workspace.entity_resolution_project.er_project_files
 7. Import the notebooks from:
 
 ```text
-src/Databricks notebook/notebook/
+src/Databricks notebook/notebooks/
 src/Databricks notebook/setup/
 ```
 
@@ -142,7 +144,7 @@ src/Databricks notebook/setup/
   -> enable_change_data_feed
 ```
 
-9. Run the Databricks Job. This creates the final decision tables, graph tables, XAI explanation table, GraphRAG document table, and enables Change Data Feed for AI Search indexing.
+9. Run the Databricks Job. This creates the final decision tables, graph tables, SHAP-backed XAI explanation table, GraphRAG document table, and enables Change Data Feed for AI Search indexing.
 
 10. Create the Databricks AI Search / Vector Search endpoint and index over:
 
@@ -422,6 +424,15 @@ You need:
 
 `ai_query` is used in the scoring, LLM tie-breaker, and GraphRAG notebooks. Databricks Runtime `15.4 LTS` or above is recommended for current `ai_query` workflows.
 
+Notebook `10_xai_explanation.ipynb` installs SHAP as a notebook-scoped Databricks dependency:
+
+```python
+%pip install --no-deps "shap==0.46.0"
+%restart_python
+```
+
+`shap` is not required for the local enrichment pipeline in `requirements.txt`; it is used only inside Databricks for post-hoc explanation of the deterministic composite score.
+
 ### 2. Create Unity Catalog Objects
 
 Run this in a Databricks SQL editor or notebook SQL cell:
@@ -460,7 +471,7 @@ You can upload through the Databricks UI:
 Import the notebooks from:
 
 ```text
-src/Databricks notebook/notebook/
+src/Databricks notebook/notebooks/
 src/Databricks notebook/setup/
 ```
 
@@ -624,6 +635,40 @@ llm_confidence >= 0.70
 
 Otherwise, the record remains for review.
 
+## XAI and SHAP Explanation Layer
+
+Notebook `10_xai_explanation.ipynb` adds a post-hoc XAI layer after final decisions have already been produced. SHAP is used only to explain the deterministic composite score; it does not change candidate ranking, thresholds, LLM tie-breaker outcomes, or final `MATCH`, `NO_MATCH`, and `REVIEW` decisions.
+
+The notebook decomposes the score into weighted parts and then uses the `shap` library to explain the same score function:
+
+```text
+composite_score =
+  name_similarity * 0.60
+  + semantic_similarity * 0.05
+  + country_match * 0.20
+  + city_match * 0.15
+```
+
+The resulting XAI table is:
+
+```text
+workspace.entity_resolution_project.company_er_xai_explanations
+```
+
+Key SHAP columns include:
+
+```text
+shap_base_value            # average baseline score before feature contributions
+name_similarity_shap       # contribution from company-name similarity
+semantic_similarity_shap   # contribution from embedding-based semantic similarity
+country_match_shap         # contribution from country match signal
+city_match_shap            # contribution from city match signal
+shap_predicted_score       # reconstructed score from baseline + SHAP contributions
+shap_score_abs_error       # absolute gap between reconstructed and original composite score
+```
+
+`shap_predicted_score` reconstructs the deterministic `composite_score` from `shap_base_value` and the feature-level SHAP contributions. `shap_score_abs_error` validates the reconstruction error.
+
 ## GraphRAG Documents
 
 Notebook `11_graphrag.ipynb` creates a retrieval-ready table:
@@ -637,7 +682,7 @@ This table contains documents for:
 - Final graph decisions
 - Non-top candidates
 - Exact company lookup
-- XAI explanations
+- XAI explanations with composite score, SHAP feature contributions, confidence, LLM reason, and final reason
 - Structured project summary
 
 The most important columns for retrieval are:
@@ -647,6 +692,8 @@ doc_id
 doc_type
 context_text
 ```
+
+For `XAI_EXPLANATION` documents, `context_text` includes the final decision, composite score, score gap, entropy, SHAP base value, SHAP predicted score, feature-level SHAP contributions, SHAP additivity error, and decision reasoning. These fields allow GraphRAG and AI Playground to answer questions such as why a candidate matched, why it needed review, or which signals contributed most to the score.
 
 ## Create AI Search / Vector Search for AI Playground
 
@@ -710,8 +757,8 @@ Embedding source: Compute embeddings
 Embedding source column: context_text
 Vector Search endpoint: <name of AI Search Endpoint>
 Index update mode: Triggered
-Columns to index: <blank> or all coloumns
-Advannce Setting:
+Columns to index: <blank> or all columns
+Advanced settings:
 - Embedding model: databricks-gte-large-en
 ```
 
@@ -740,6 +787,7 @@ Which companies were candidates for Amazon E Store?
 Which company matched to Amazon E Store, and why?
 List the records that still need manual review.
 Explain why a candidate was not selected as the final match.
+Which SHAP features contributed most to a match decision?
 Which suppliers were matched from multiple input company names?
 ```
 
@@ -749,22 +797,26 @@ For exploratory questions, explanations, and specific review-case lookups, AI Pl
 
 ### 5. Resync After GraphRAG Document Changes
 
-If you change notebook `11_graphrag.ipynb` in a way that changes the generated GraphRAG documents, rerun the notebook or the Databricks Job and then sync the AI Search index again.
+If you change notebook `10_xai_explanation.ipynb` or `11_graphrag.ipynb` in a way that changes the generated XAI explanations or GraphRAG documents, rerun the affected notebooks or the Databricks Job and then sync the AI Search index again.
 
 Changes that do not require an AI Search sync:
 
 - Changing the demo `QUESTION`.
 - Changing notebook-only retrieval settings such as `TOP_K`.
 - Changing the manual notebook RAG prompt or answer style rules.
+- Changing only SHAP visualization formatting in notebook `10_xai_explanation.ipynb`, as long as the saved XAI table and GraphRAG document text do not change.
 
 Those fields affect the manual GraphRAG query inside the notebook, but they do not change the indexed document table used by AI Playground.
 
-If only the rows in `company_er_graphrag_documents` change, sync the existing AI Search index again. If the document table schema or indexed columns change, recreate the AI Search index so the index uses the new structure.
+If only the rows in `company_er_xai_explanations` or `company_er_graphrag_documents` change, rerun notebook `11_graphrag.ipynb` and sync the existing AI Search index again. If the document table schema or indexed columns change, recreate the AI Search index so the index uses the new structure.
 
 ## Notes and Limitations
 
 - Model endpoint names may differ by Databricks workspace or region.
 - If `ai_query` returns permission or availability errors, check model serving access and regional feature availability.
+- SHAP is installed as a Databricks notebook-scoped dependency in `10_xai_explanation.ipynb`. If the install cell changes package versions, restart Python with `%restart_python` before running the remaining cells.
+- SHAP is used as post-hoc explainability for the deterministic composite-score function only. It does not change candidate ranking, thresholds, LLM tie-breaker results, or final match decisions.
+- SHAP values explain the score features (`name_similarity`, `semantic_similarity`, `country_match`, `city_match`). For LLM-assisted cases, use SHAP together with `llm_reason` and `final_reason`.
 - Notebook `11_graphrag.ipynb` has a hardcoded demo `QUESTION`; update it before rerunning manual GraphRAG inside the notebook.
 - The AI Playground flow is separate from the manual GraphRAG notebook. The notebook builds and queries retrieval context directly, while AI Playground uses the AI Search index as a tool.
 - For questions that require an exhaustive list of records, the GraphRAG chatbot may not return every item. This is mainly because retrieval returns only the top `K` most relevant documents, and the model can only answer from the retrieved context. In this project, the notebook demo uses `TOP_K = 50`, but increasing `TOP_K` still does not guarantee a complete list if relevant records are not retrieved, are ranked lower, or cannot fit into the model context. This limitation mainly affects "list all..." questions, such as listing all candidates, all suppliers, or all records in a broad category. For exact exhaustive lists, query the Delta tables directly, such as `company_er_all_candidate_decisions`, `company_er_final_decisions`, or `company_er_graphrag_documents`.
@@ -781,4 +833,5 @@ If only the rows in `company_er_graphrag_documents` change, sync the existing AI
 - Unity Catalog volumes and file upload: https://docs.databricks.com/aws/en/ingestion/file-upload/
 - Import Databricks notebooks: https://docs.databricks.com/aws/en/notebooks/notebook-export-import
 - Databricks `ai_query`: https://docs.databricks.com/aws/en/sql/language-manual/functions/ai_query
+- SHAP documentation: https://shap.readthedocs.io/
 - Crawl4AI GitHub repository: https://github.com/unclecode/crawl4ai
