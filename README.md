@@ -152,37 +152,6 @@ workspace.entity_resolution_project.company_er_graphrag_documents
 
 11. Open Databricks AI Playground, add the AI Search index as a tool, and test natural-language questions about matched companies, candidate lists, review cases, and explanation evidence.
 
-## Tech Stack
-
-### Local Data Enrichment
-
-- **Python**: Main local pipeline implementation.
-- **Pandas**: CSV and tabular data processing.
-- **PyArrow / Parquet**: Intermediate structured output storage.
-- **Crawl4AI**: Open-source LLM-friendly web crawler and scraper used for website and social-page crawling. This project uses the GitHub project [`unclecode/crawl4ai`](https://github.com/unclecode/crawl4ai) for web data extraction.
-- **BeautifulSoup / lxml**: HTML parsing and metadata extraction.
-- **PyYAML**: Configuration management through `config/company_data_enrichment.yaml`.
-- **Pytest**: Unit testing for pipeline, crawler, rules, extraction, and geographic signals.
-
-### Databricks Entity Resolution
-
-- **Databricks Notebooks**: Main execution environment for the entity-resolution workflow.
-- **PySpark**: Distributed data processing and table transformations.
-- **Unity Catalog**: Catalog, schema, table, and volume governance.
-- **Delta Lake**: Storage layer for all Databricks pipeline tables.
-- **Databricks Volumes**: File storage for uploading `data_er_ready.csv`.
-- **Databricks AI Functions / `ai_query`**: Batch calls to embedding and LLM endpoints.
-- **Databricks Foundation Model APIs**: LLM and embedding model access.
-- **Databricks AI Search / Vector Search**: Retrieval index for GraphRAG documents.
-- **Databricks AI Playground**: No-code testing environment for RAG and tool-calling agents.
-
-### Models and AI Components
-
-- **Embedding model**: `databricks-gte-large-en`
-- **LLM tie-breaker / GraphRAG model**: `databricks-gpt-oss-120b`
-- **GraphRAG retrieval source**: `company_er_graphrag_documents`
-- **AI Playground tool**: AI Search index over GraphRAG documents
-
 ## Repository Structure
 
 ```text
