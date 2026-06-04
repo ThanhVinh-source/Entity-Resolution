@@ -158,16 +158,16 @@ workspace.entity_resolution_project.company_er_graphrag_documents
 .
 ├── .gitignore
 ├── README.md
-├── requirements.txt
+├── requirements.txt                               # Local Python dependencies
 ├── config/
-│   └── company_data_enrichment.yaml
+│   └── company_data_enrichment.yaml               # Enrichment and validation configuration
 ├── dataset/
-│   ├── data_sample_AofAI.csv
-│   └── silver/
+│   ├── data_sample_AofAI.csv                      # Raw sample input
+│   └── silver/                                    # Tracked enrichment outputs used by Databricks
 │       ├── data_enriched.csv
 │       └── data_er_ready.csv
 ├── src/
-│   ├── company_data_enrichment/
+│   ├── company_data_enrichment/                   # Local Python enrichment, extraction, validation, and export logic
 │   │   ├── crawler.py
 │   │   ├── extractors.py
 │   │   ├── geo_signals.py
@@ -177,7 +177,7 @@ workspace.entity_resolution_project.company_er_graphrag_documents
 │   │   ├── rules.py
 │   │   └── url_manifest.py
 │   └── Databricks notebook/
-│       ├── notebook/
+│       ├── notebooks/                             # Main Databricks entity-resolution and GraphRAG notebooks 
 │       │   ├── 01_load_er_ready.ipynb
 │       │   ├── 02_clean_company_er.ipynb
 │       │   ├── 03_generate_candidates.ipynb
@@ -189,9 +189,9 @@ workspace.entity_resolution_project.company_er_graphrag_documents
 │       │   ├── 09_knowledge_graph.ipynb
 │       │   ├── 10_xai_explanation.ipynb
 │       │   └── 11_graphrag.ipynb
-│       └── setup/
+│       └── setup/                                 # Databricks setup notebook for Change Data Feed
 │           └── enable_change_data_feed.ipynb
-└── test/
+└── test/                                          # Unit tests
     ├── test_crawler.py
     ├── test_extractors.py
     ├── test_geo_signals.py
@@ -199,26 +199,6 @@ workspace.entity_resolution_project.company_er_graphrag_documents
     ├── test_pipeline.py
     ├── test_rules.py
     └── test_url_manifest.py
-```
-
-At a high level:
-
-```text
-config/
-  company_data_enrichment.yaml      # Enrichment and validation configuration
-
-dataset/
-  data_sample_AofAI.csv             # Raw sample input
-  silver/                           # Tracked enrichment outputs used by Databricks
-
-src/
-  company_data_enrichment/          # Local Python enrichment, extraction, validation, and export logic
-  Databricks notebook/
-    notebook/                       # Main Databricks entity-resolution and GraphRAG notebooks
-    setup/                          # Databricks setup notebook for Change Data Feed
-
-test/                               # Unit tests
-requirements.txt                    # Local Python dependencies
 ```
 
 ## Local Setup
