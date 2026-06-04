@@ -302,6 +302,68 @@ raw CSV URL columns
   -> extraction and merge steps
 ```
 
+Detailed Python and file flow:
+
+```text
+python -m company_data_enrichment.pipeline run-all --config config/company_data_enrichment.yaml
+  -> src/company_data_enrichment/pipeline.py::main()
+  -> src/company_data_enrichment/pipeline.py::run_all()
+
+run_all()
+  -> run_build_manifest()
+     -> src/company_data_enrichment/pandas_io.py::read_input_csv()
+     -> src/company_data_enrichment/url_manifest.py::build_url_manifest()
+     -> src/company_data_enrichment/url_manifest.py::build_crawl_queue()
+     -> src/company_data_enrichment/pipeline.py::build_geo_prefill()
+     -> writes dataset/silver/url_manifest.parquet
+     -> writes dataset/silver/crawl_queue.parquet
+     -> writes dataset/silver/geo_prefill.parquet
+
+  -> run_crawl()
+     -> reads dataset/silver/crawl_queue.parquet
+     -> src/company_data_enrichment/crawler.py::crawl_records()
+     -> src/company_data_enrichment/crawler.py::crawl_records_async()
+     -> Crawl4AI AsyncWebCrawler
+     -> writes dataset/silver/crawl_results_raw.parquet
+
+  -> run_extract()
+     -> reads dataset/silver/crawl_results_raw.parquet
+     -> reads dataset/silver/url_manifest.parquet
+     -> src/company_data_enrichment/extractors.py::extract_rows()
+     -> src/company_data_enrichment/extractors.py::extract_from_html()
+     -> src/company_data_enrichment/pipeline.py::build_company_validation_results()
+     -> src/company_data_enrichment/geo_signals.py country/city signal helpers
+     -> writes dataset/silver/crawl_extracted_fields.parquet
+     -> writes dataset/silver/company_validation_results.parquet
+     -> writes dataset/silver/company_validation_results.csv
+
+  -> run_merge()
+     -> src/company_data_enrichment/pipeline.py::build_best_evidence()
+     -> src/company_data_enrichment/pipeline.py::build_evidence_frame()
+     -> src/company_data_enrichment/rules.py::decide_action()
+     -> src/company_data_enrichment/rules.py::choose_final_value()
+     -> src/company_data_enrichment/quality_report.py::build_quality_report()
+     -> writes dataset/silver/data_enriched.parquet
+     -> writes dataset/silver/data_enriched.csv
+
+  -> run_export_er_ready()
+     -> reads dataset/silver/data_enriched.parquet
+     -> src/company_data_enrichment/pipeline.py::build_er_ready_frame()
+     -> writes dataset/silver/data_er_ready.parquet
+     -> writes dataset/silver/data_er_ready.csv
+```
+
+The detailed flow maps to the local pipeline stages as follows:
+
+- `pipeline.py` is the entrypoint and stage orchestrator for every local enrichment command.
+- `pandas_io.py` handles CSV and Parquet reads/writes used across the stages.
+- `url_manifest.py` builds the URL manifest and deduplicated crawl queue.
+- `crawler.py` runs Crawl4AI and returns raw page results.
+- `extractors.py` extracts structured company evidence from crawled HTML and markdown.
+- `geo_signals.py` supports country and city validation.
+- `rules.py` decides whether to keep, add, or replace original values with extracted values.
+- `quality_report.py` summarizes enrichment quality after merge.
+
 The URL manifest is built from the URL columns configured in `config/company_data_enrichment.yaml`:
 
 ```text
