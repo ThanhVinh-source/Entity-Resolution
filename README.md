@@ -669,6 +669,11 @@ shap_score_abs_error       # absolute gap between reconstructed and original com
 
 `shap_predicted_score` reconstructs the deterministic `composite_score` from `shap_base_value` and the feature-level SHAP contributions. `shap_score_abs_error` validates the reconstruction error.
 
+Report-ready SHAP visualizations from the notebook show:
+
+- **Global SHAP feature importance**: `city_match` has the largest mean absolute SHAP value (`0.074`), followed by `name_similarity` (`0.059`), `country_match` (`0.038`), and `semantic_similarity` (`0.004`). This suggests location and name signals drive most of the deterministic score variation.
+- **Row-level SHAP explanation for one `MATCH` decision**: for `HUAWEI TECHNOLOGIES NORWAY AS` vs `Huawei Technologies Norway AS`, all SHAP contributions are positive: `name_similarity` (`+0.094`), `city_match` (`+0.087`), `country_match` (`+0.020`), and `semantic_similarity` (`+0.010`). The baseline score is `0.789`, and the SHAP-reconstructed score, composite score, and final confidence are all `1.000`.
+
 ## GraphRAG Documents
 
 Notebook `11_graphrag.ipynb` creates a retrieval-ready table:
