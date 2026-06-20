@@ -63,30 +63,25 @@ The full project is run in two environments: the local machine first, then Datab
 
 ```mermaid
 flowchart LR
-    subgraph LOCAL["Local root: local enrichment workspace"]
-        A["Project root<br/>README.md, config/, src/, dataset/"] --> B["Create venv + install deps<br/>requirements.txt"]
-        B --> C["Run local pipeline<br/>company_data_enrichment.pipeline run-all"]
-        C --> C1["Read config + raw CSV<br/>company_data_enrichment.yaml<br/>data_sample_AofAI.csv"]
-        C1 --> C2["Build URL manifest<br/>website + social URL columns"]
-        C2 --> C3["Build crawl queue<br/>deduplicate URLs + prioritize official sites"]
-        C3 --> C4["Crawl with Crawl4AI<br/>official websites, social pages,<br/>optional shallow deep crawl"]
-        C4 --> C5["Write raw crawl results<br/>crawl_results_raw.parquet"]
-        C5 --> C6["Extract + validate fields<br/>HTML/Markdown, JSON-LD, TLD,<br/>country and city signals"]
-        C6 --> C7["Merge enrichment evidence<br/>KEEP / ADD / REPLACE rules"]
-        C7 --> D["Export ER-ready dataset<br/>dataset/silver/data_er_ready.csv"]
+    subgraph LOCAL["Local machine"]
+        A["Setup local project<br/>venv, dependencies, config"] --> B["Raw company data<br/>company attributes + website/social URLs"]
+        B --> C["URL preparation<br/>normalize, deduplicate, prioritize sources"]
+        C --> D["Crawl4AI crawling<br/>official websites + social pages<br/>optional shallow deep crawl"]
+        D --> E["Content extraction<br/>HTML, Markdown, JSON-LD,<br/>contact and company signals"]
+        E --> F["Geographic validation<br/>TLD, language, web text,<br/>country and city signals"]
+        F --> G["Rule-based enrichment<br/>KEEP / ADD / REPLACE"]
+        G --> H["ER-ready local export<br/>data_er_ready.csv"]
     end
 
     subgraph DBX["Databricks workspace"]
-        E["Create UC schema + volume"] --> F["Upload CSV"]
-        F --> G["Import notebooks"]
-        G --> H["Create Job"]
-        H --> I["Run Job"]
-        I --> J["ER + GraphRAG tables"]
-        J --> K["AI Search index"]
-        K --> L["AI Playground"]
+        I["Upload ER-ready CSV"] --> J["Entity resolution notebooks"]
+        J --> K["Final decisions + graph tables"]
+        K --> L["XAI + GraphRAG documents"]
+        L --> M["AI Search index"]
+        M --> N["AI Playground"]
     end
 
-    D --> E
+    H --> I
 ```
 
 Step-by-step:
