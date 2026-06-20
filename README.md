@@ -64,21 +64,27 @@ The full project is run in two environments: the local machine first, then Datab
 ```mermaid
 flowchart LR
     subgraph LOCAL["Local machine"]
-        A["Setup local project<br/>venv, dependencies, config"] --> B["Raw company data<br/>company attributes + website/social URLs"]
-        B --> C["URL preparation<br/>normalize, deduplicate, prioritize sources"]
-        C --> D["Crawl4AI crawling<br/>official websites + social pages<br/>optional shallow deep crawl"]
-        D --> E["Content extraction<br/>HTML, Markdown, JSON-LD,<br/>contact and company signals"]
-        E --> F["Geographic validation<br/>TLD, language, web text,<br/>country and city signals"]
-        F --> G["Rule-based enrichment<br/>KEEP / ADD / REPLACE"]
-        G --> H["ER-ready local export<br/>data_er_ready.csv"]
+        A["Local setup<br/>environment + config"] --> B["Raw company data<br/>attributes + website/social URLs"]
+        B --> C["URL preparation<br/>normalize + deduplicate sources"]
+        C --> D["Crawl4AI crawling<br/>websites, social pages, shallow crawl"]
+        D --> E["Signal extraction<br/>HTML, Markdown, JSON-LD, contacts"]
+        E --> F["Geo validation<br/>TLD, language, country/city evidence"]
+        F --> G["Field enrichment<br/>KEEP / ADD / REPLACE logic"]
+        G --> H["ER-ready export<br/>data_er_ready.csv"]
     end
 
     subgraph DBX["Databricks workspace"]
-        I["Upload ER-ready CSV"] --> J["Entity resolution notebooks"]
-        J --> K["Final decisions + graph tables"]
-        K --> L["XAI + GraphRAG documents"]
-        L --> M["AI Search index"]
-        M --> N["AI Playground"]
+        I["Upload CSV"] --> J["Load + clean records"]
+        J --> K["Generate candidate pairs"]
+        K --> L["Score pairs<br/>string, semantic, location"]
+        L --> M["Decision layer<br/>rules + thresholds"]
+        M --> N["LLM tie-breaker"]
+        N --> O["Final match decisions"]
+        O --> P["Knowledge graph"]
+        P --> Q["XAI explanations<br/>SHAP evidence"]
+        Q --> R["GraphRAG documents"]
+        R --> S["Enable CDF + AI Search index"]
+        S --> T["AI Playground"]
     end
 
     H --> I
