@@ -1032,6 +1032,7 @@ def build_er_ready_frame(enriched_df, validation_results_df, config):
     er_config = config.get("er_ready", {})
     city_threshold = float(er_config.get("city_confidence_threshold", 0.80))
     email_threshold = float(er_config.get("email_confidence_threshold", 0.85))
+    phone_threshold = float(er_config.get("phone_confidence_threshold", 0.80))
     description_threshold = float(
         er_config.get("description_confidence_threshold", 0.75)
     )
@@ -1109,7 +1110,18 @@ def build_er_ready_frame(enriched_df, validation_results_df, config):
     output_df["primary_email"] = [value for value, _ in email_values]
     output_df["email_source"] = [source for _, source in email_values]
 
-    copy_optional_column(output_df, enriched_df, "primary_phone")
+    phone_values = enriched_df.apply(
+        lambda row: choose_er_value(
+            row,
+            "primary_phone",
+            "final_primary_phone",
+            "extracted_primary_phone_confidence",
+            phone_threshold,
+        ),
+        axis=1,
+    )
+    output_df["primary_phone"] = [value for value, _ in phone_values]
+    output_df["phone_source"] = [source for _, source in phone_values]
 
     description_values = enriched_df.apply(
         lambda row: choose_er_value(

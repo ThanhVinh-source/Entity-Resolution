@@ -510,3 +510,32 @@ def test_build_er_ready_frame_adds_year_and_employee_count_when_original_missing
     assert result.loc[0, "year_founded_source"] == "final_added"
     assert result.loc[0, "employee_count"] == "120"
     assert result.loc[0, "employee_count_source"] == "final_added"
+
+
+def test_build_er_ready_frame_uses_final_phone_when_confident():
+    enriched_df = pd.DataFrame(
+        [
+            {
+                "Applications_of_AI_id": "A1",
+                "company_name": "Original Company",
+                "main_country_code": "DK",
+                "final_main_country_code": "DK",
+                "primary_phone": "923335000000.0",
+                "final_primary_phone": "+92 3401111215",
+                "extracted_primary_phone_confidence": 0.80,
+            }
+        ]
+    )
+
+    result = build_er_ready_frame(
+        enriched_df,
+        pd.DataFrame(),
+        {
+            "er_ready": {
+                "phone_confidence_threshold": 0.80,
+            }
+        },
+    )
+
+    assert result.loc[0, "primary_phone"] == "+92 3401111215"
+    assert result.loc[0, "phone_source"] == "final"

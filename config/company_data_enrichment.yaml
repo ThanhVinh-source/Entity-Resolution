@@ -51,6 +51,7 @@ country_validation:
 er_ready:
   city_confidence_threshold: 0.80
   email_confidence_threshold: 0.85
+  phone_confidence_threshold: 0.80
   description_confidence_threshold: 0.75
   year_founded_confidence_threshold: 0.80
   employee_count_confidence_threshold: 0.75

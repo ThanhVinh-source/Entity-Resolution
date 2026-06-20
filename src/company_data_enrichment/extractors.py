@@ -31,6 +31,12 @@ from company_data_enrichment.geo_signals import (
 
 EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.\w+")
 PHONE_RE = re.compile(r"(\+?\d[\d\s().-]{7,}\d)")
+MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+FILE_URL_RE = re.compile(
+    r"https?://\S+\.(?:png|jpe?g|gif|webp|svg|pdf|docx?|xlsx?|pptx?)\S*",
+    re.IGNORECASE,
+)
 YEAR_RE = re.compile(r"\b(18\d{2}|19\d{2}|20\d{2})\b")
 FOUNDED_RE = re.compile(
     r"\b(?:founded|established|founded in|established in|since)\D{0,20}"
@@ -47,6 +53,31 @@ EMPLOYEE_TRAILING_RE = re.compile(
     r"\b(\d{1,3}(?:[,\s]\d{3})+|\d{1,7})\s*"
     r"(?:employees?|people|staff|team members?)\b",
     re.IGNORECASE,
+)
+GENERIC_TITLE_VALUES = {
+    "home",
+    "homepage",
+    "home page",
+    "index",
+    "login",
+    "sign in",
+    "welcome",
+    "untitled",
+}
+SOCIAL_WALL_DESCRIPTION_SNIPPETS = (
+    "sign in to view",
+    "log in to view",
+    "join to view",
+    "create an account or log in",
+    "log in or sign up",
+    "sign up to see",
+    "join now to see",
+    "view this profile",
+    "connect with people",
+    "connect with friends",
+    "see posts, photos and more",
+    "share photos and videos",
+    "follow people and topics",
 )
 
 DEFAULT_VALIDATION_CONFIG = {
@@ -77,6 +108,79 @@ def clean_title(value):
 
     parts = re.split(r"\s[-|]\s", value)
     return clean_text(parts[0])
+
+
+def is_generic_title(value):
+    value = clean_title(value)
+    if value is None:
+        return True
+
+    return normalize_value(value).lower() in GENERIC_TITLE_VALUES
+
+
+def is_social_wall_description(value):
+    value = clean_text(value)
+    if value is None:
+        return False
+
+    lowered = value.lower()
+    return any(snippet in lowered for snippet in SOCIAL_WALL_DESCRIPTION_SNIPPETS)
+
+
+def strip_markdown_noise(value):
+    value = clean_text(value)
+    if value is None:
+        return ""
+
+    value = MARKDOWN_IMAGE_RE.sub(" ", value)
+    value = MARKDOWN_LINK_RE.sub(" ", value)
+    value = FILE_URL_RE.sub(" ", value)
+    return value
+
+
+def clean_phone_candidate(value):
+    value = clean_text(value)
+    if value is None:
+        return None
+
+    return value.strip(" \t\r\n.,;:")
+
+
+def is_valid_phone_candidate(value):
+    value = clean_phone_candidate(value)
+    if value is None:
+        return False
+
+    digits = re.sub(r"\D", "", value)
+    return 8 <= len(digits) <= 15
+
+
+def extract_phone_from_text(value):
+    value = clean_text(value)
+    if value is None:
+        return None
+
+    for match in PHONE_RE.finditer(value):
+        candidate = clean_phone_candidate(match.group(0))
+        if is_valid_phone_candidate(candidate):
+            return candidate
+
+    return None
+
+
+def extract_phone_from_tel_links(soup):
+    for tag in soup.find_all("a", href=True):
+        href = tag.get("href", "")
+        if not href.lower().startswith("tel:"):
+            continue
+
+        candidate = href.split(":", 1)[1].split("?", 1)[0]
+        candidate = candidate.replace("%20", " ")
+        candidate = clean_phone_candidate(candidate)
+        if is_valid_phone_candidate(candidate):
+            return candidate
+
+    return None
 
 
 # note: Extract a four-digit founding year from structured or text values.
@@ -238,6 +342,14 @@ def collect_meta_contents(soup):
 # Strip non-content page chrome before extracting visible body text for geo keyword matching.
 def clean_visible_text(soup):
     for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+        tag.decompose()
+
+    return clean_text(soup.get_text(" ", strip=True))
+
+
+def clean_phone_visible_text(html):
+    soup = BeautifulSoup(html, "lxml")
+    for tag in soup(["script", "style"]):
         tag.decompose()
 
     return clean_text(soup.get_text(" ", strip=True))
@@ -522,15 +634,16 @@ def extract_from_html(crawl_row, validation_config=None):
 
     if soup.title and soup.title.string:
         title_text = soup.title.string
-        field = make_field(
-            canonical_url,
-            "company_name",
-            clean_title(title_text),
-            "html_title",
-            0.55,
-        )
-        if field:
-            rows.append(field)
+        if not is_generic_title(title_text):
+            field = make_field(
+                canonical_url,
+                "company_name",
+                clean_title(title_text),
+                "html_title",
+                0.55,
+            )
+            if field:
+                rows.append(field)
 
     meta_names = [
         ("description", "name"),
@@ -553,6 +666,9 @@ def extract_from_html(crawl_row, validation_config=None):
         else:
             field_name = "short_description"
             confidence = 0.55
+
+        if field_name == "short_description" and is_social_wall_description(content):
+            continue
 
         field = make_field(
             canonical_url,
@@ -643,14 +759,27 @@ def extract_from_html(crawl_row, validation_config=None):
         if field:
             rows.append(field)
 
-    phone_match = PHONE_RE.search(markdown)
-    if phone_match:
+    phone_value = extract_phone_from_tel_links(soup)
+    phone_evidence_type = "tel_link"
+    phone_confidence = 0.75
+
+    if not phone_value:
+        phone_value = extract_phone_from_text(clean_phone_visible_text(html))
+        phone_evidence_type = "page_text"
+        phone_confidence = 0.60
+
+    if not phone_value:
+        phone_value = extract_phone_from_text(strip_markdown_noise(markdown))
+        phone_evidence_type = "page_text"
+        phone_confidence = 0.60
+
+    if phone_value:
         field = make_field(
             canonical_url,
             "primary_phone",
-            phone_match.group(0),
-            "page_text",
-            0.60,
+            phone_value,
+            phone_evidence_type,
+            phone_confidence,
         )
         if field:
             rows.append(field)

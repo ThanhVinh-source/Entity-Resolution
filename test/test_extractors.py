@@ -161,6 +161,65 @@ def test_extract_email_from_markdown():
     assert rows[0]["extracted_value"] == "sales@acme.com"
 
 
+def test_phone_extraction_ignores_markdown_image_filenames():
+    rows = extract_from_html({
+        "canonical_url": "https://example.com",
+        "success": True,
+        "html": "<html></html>",
+        "markdown": "![Company logo](Company-Logo-e1626516425801-160x54.png)",
+    })
+    values = {(row["field_name"], row["extracted_value"]) for row in rows}
+
+    assert ("primary_phone", "1626516425801-160") not in values
+    assert not any(row["field_name"] == "primary_phone" for row in rows)
+
+
+def test_phone_extraction_prefers_tel_links():
+    rows = extract_from_html({
+        "canonical_url": "https://example.com",
+        "success": True,
+        "html": """
+        <html>
+          <body>
+            <a href="tel:+923401111215">Call us</a>
+          </body>
+        </html>
+        """,
+        "markdown": "![Company logo](Company-Logo-e1626516425801-160x54.png)",
+    })
+    values = {(row["field_name"], row["extracted_value"], row["evidence_type"]) for row in rows}
+
+    assert ("primary_phone", "+923401111215", "tel_link") in values
+
+
+def test_generic_home_title_is_not_company_name_evidence():
+    rows = extract_from_html({
+        "canonical_url": "https://example.com",
+        "success": True,
+        "html": "<html><head><title>Home</title></head></html>",
+        "markdown": "",
+    })
+
+    assert not any(row["field_name"] == "company_name" for row in rows)
+
+
+def test_generic_social_wall_description_is_not_short_description_evidence():
+    rows = extract_from_html({
+        "canonical_url": "https://social.example.com/company/example",
+        "success": True,
+        "html": """
+        <html>
+          <head>
+            <meta name="description" content="Sign in to view this profile. Create an account or log in to connect with people and see posts, photos and more.">
+          </head>
+        </html>
+        """,
+        "markdown": "",
+    })
+
+    assert not any(row["field_name"] == "short_description" for row in rows)
+
+
 def test_extract_year_founded_and_employee_count_from_text():
     rows = extract_from_html({
         "canonical_url": "https://acme.com",
