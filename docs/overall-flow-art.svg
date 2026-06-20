@@ -1,0 +1,272 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 840" role="img" aria-labelledby="title desc">
+  <title id="title">Entity Resolution Project Architecture</title>
+  <desc id="desc">A hand-drawn style flowchart showing local company data enrichment with Crawl4AI, followed by the Databricks entity resolution, XAI, GraphRAG, AI Search, and AI Playground workflow.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#1f2937"/>
+    </marker>
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="1.5" dy="2" stdDeviation="1.8" flood-color="#1f2937" flood-opacity="0.16"/>
+    </filter>
+    <style>
+      .page {
+        fill: #fffdf8;
+      }
+      .title {
+        font-family: "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive;
+        font-size: 26px;
+        fill: #111827;
+      }
+      .frame {
+        fill: rgba(255, 255, 255, 0.6);
+        stroke: #111827;
+        stroke-width: 2;
+        stroke-dasharray: 8 8;
+        rx: 20;
+      }
+      .frame-label {
+        font-family: "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive;
+        font-size: 15px;
+        fill: #374151;
+      }
+      .box {
+        stroke: #1f2937;
+        stroke-width: 1.5;
+        rx: 12;
+        filter: url(#softShadow);
+      }
+      .node-text {
+        font-family: "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive;
+        font-size: 14px;
+        fill: #111827;
+        text-anchor: middle;
+      }
+      .node-subtext {
+        font-family: "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive;
+        font-size: 12px;
+        fill: #374151;
+        text-anchor: middle;
+      }
+      .arrow {
+        fill: none;
+        stroke: #1f2937;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        marker-end: url(#arrow);
+      }
+      .arrow-label {
+        font-family: "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive;
+        font-size: 12px;
+        fill: #d92d20;
+        text-anchor: middle;
+      }
+      .tiny {
+        font-family: "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive;
+        font-size: 11px;
+        fill: #6b7280;
+      }
+    </style>
+  </defs>
+
+  <rect class="page" x="0" y="0" width="1240" height="840"/>
+  <text class="title" x="620" y="42" text-anchor="middle">Entity Resolution Project Architecture</text>
+
+  <rect class="frame" x="40" y="80" width="520" height="740"/>
+  <text class="frame-label" x="72" y="108">Local machine</text>
+  <circle cx="58" cy="103" r="5" fill="#5dade2"/>
+
+  <rect class="frame" x="680" y="80" width="520" height="740"/>
+  <text class="frame-label" x="712" y="108">Databricks workspace</text>
+  <circle cx="698" cy="103" r="5" fill="#ff7f50"/>
+
+  <!-- Local enrichment flow -->
+  <g>
+    <rect class="box" x="78" y="135" width="175" height="62" fill="#fff4bf"/>
+    <text class="node-text" x="165.5" y="160">Local setup</text>
+    <text class="node-subtext" x="165.5" y="180">environment + config</text>
+  </g>
+
+  <g>
+    <rect class="box" x="78" y="260" width="205" height="70" fill="#d9ecff"/>
+    <text class="node-text" x="180.5" y="286">Raw company data</text>
+    <text class="node-subtext" x="180.5" y="307">attributes + website/social URLs</text>
+  </g>
+
+  <g>
+    <rect class="box" x="330" y="260" width="195" height="76" fill="#d8f3dc"/>
+    <text class="node-text" x="427.5" y="286">URL preparation</text>
+    <text class="node-subtext" x="427.5" y="306">normalize URLs</text>
+    <text class="node-subtext" x="427.5" y="323">remove duplicate crawl targets</text>
+  </g>
+
+  <g>
+    <rect class="box" x="330" y="390" width="195" height="78" fill="#e7f0ff"/>
+    <text class="node-text" x="427.5" y="416">Crawl4AI crawling</text>
+    <text class="node-subtext" x="427.5" y="436">websites + social pages</text>
+    <text class="node-subtext" x="427.5" y="453">shallow crawl</text>
+  </g>
+
+  <g>
+    <rect class="box" x="78" y="390" width="205" height="78" fill="#ffe5d9"/>
+    <text class="node-text" x="180.5" y="416">Signal extraction</text>
+    <text class="node-subtext" x="180.5" y="436">HTML + Markdown</text>
+    <text class="node-subtext" x="180.5" y="453">JSON-LD + contacts</text>
+  </g>
+
+  <g>
+    <rect class="box" x="78" y="525" width="205" height="78" fill="#fce1f0"/>
+    <text class="node-text" x="180.5" y="551">Geo validation</text>
+    <text class="node-subtext" x="180.5" y="571">TLD + language</text>
+    <text class="node-subtext" x="180.5" y="588">country/city evidence</text>
+  </g>
+
+  <g>
+    <rect class="box" x="330" y="525" width="195" height="78" fill="#eadcff"/>
+    <text class="node-text" x="427.5" y="551">Field enrichment</text>
+    <text class="node-subtext" x="427.5" y="571">KEEP / ADD / REPLACE</text>
+    <text class="node-subtext" x="427.5" y="588">confidence rules</text>
+  </g>
+
+  <g>
+    <rect class="box" x="330" y="670" width="195" height="66" fill="#dff7ff"/>
+    <text class="node-text" x="427.5" y="697">ER-ready export</text>
+    <text class="node-subtext" x="427.5" y="718">data_er_ready.csv</text>
+  </g>
+
+  <!-- Databricks flow -->
+  <g>
+    <rect class="box" x="720" y="135" width="172" height="62" fill="#fff4bf"/>
+    <text class="node-text" x="806" y="160">Upload CSV</text>
+    <text class="node-subtext" x="806" y="180">Unity Catalog volume</text>
+  </g>
+
+  <g>
+    <rect class="box" x="720" y="260" width="178" height="68" fill="#d9ecff"/>
+    <text class="node-text" x="809" y="286">Load + clean</text>
+    <text class="node-subtext" x="809" y="307">standardize records</text>
+  </g>
+
+  <g>
+    <rect class="box" x="970" y="260" width="178" height="68" fill="#d8f3dc"/>
+    <text class="node-text" x="1059" y="286">Generate pairs</text>
+    <text class="node-subtext" x="1059" y="307">candidate companies</text>
+  </g>
+
+  <g>
+    <rect class="box" x="970" y="390" width="178" height="78" fill="#e7f0ff"/>
+    <text class="node-text" x="1059" y="416">Score pairs</text>
+    <text class="node-subtext" x="1059" y="436">string + semantic</text>
+    <text class="node-subtext" x="1059" y="453">location signals</text>
+  </g>
+
+  <g>
+    <rect class="box" x="720" y="390" width="178" height="78" fill="#ffe5d9"/>
+    <text class="node-text" x="809" y="416">Decision layer</text>
+    <text class="node-subtext" x="809" y="436">rules + thresholds</text>
+    <text class="node-subtext" x="809" y="453">match / review / no match</text>
+  </g>
+
+  <g>
+    <rect class="box" x="720" y="525" width="178" height="72" fill="#fce1f0"/>
+    <text class="node-text" x="809" y="552">LLM tie-breaker</text>
+    <text class="node-subtext" x="809" y="573">resolve ambiguous cases</text>
+  </g>
+
+  <g>
+    <rect class="box" x="970" y="525" width="178" height="72" fill="#eadcff"/>
+    <text class="node-text" x="1059" y="552">Final decisions</text>
+    <text class="node-subtext" x="1059" y="573">match outcomes</text>
+  </g>
+
+  <g>
+    <rect class="box" x="970" y="660" width="178" height="72" fill="#dff7ff"/>
+    <text class="node-text" x="1059" y="687">Knowledge graph</text>
+    <text class="node-subtext" x="1059" y="708">nodes + edges</text>
+  </g>
+
+  <g>
+    <rect class="box" x="720" y="660" width="178" height="72" fill="#e2f6ca"/>
+    <text class="node-text" x="809" y="687">XAI explanations</text>
+    <text class="node-subtext" x="809" y="708">SHAP evidence</text>
+  </g>
+
+  <g>
+    <rect class="box" x="835" y="735" width="178" height="62" fill="#fff1c7"/>
+    <text class="node-text" x="924" y="760">GraphRAG docs</text>
+    <text class="node-subtext" x="924" y="780">retrieval content</text>
+  </g>
+
+  <g>
+    <rect class="box" x="1030" y="735" width="135" height="62" fill="#d9f2ee"/>
+    <text class="node-text" x="1097.5" y="760">AI Search</text>
+    <text class="node-subtext" x="1097.5" y="780">index + CDF</text>
+  </g>
+
+  <g>
+    <rect class="box" x="700" y="735" width="120" height="62" fill="#f0e5ff"/>
+    <text class="node-text" x="760" y="760">AI Playground</text>
+    <text class="node-subtext" x="760" y="780">chat demo</text>
+  </g>
+
+  <!-- Local arrows -->
+  <path class="arrow" d="M166 197 C166 217 174 235 179 259"/>
+  <text class="arrow-label" x="115" y="232">start</text>
+
+  <path class="arrow" d="M283 296 C301 296 313 296 329 296"/>
+  <text class="arrow-label" x="306" y="284">source URLs</text>
+
+  <path class="arrow" d="M427 336 C427 354 427 369 427 389"/>
+  <text class="arrow-label" x="474" y="364">crawl queue</text>
+
+  <path class="arrow" d="M330 430 C310 430 300 430 284 430"/>
+  <text class="arrow-label" x="307" y="416">raw pages</text>
+
+  <path class="arrow" d="M181 468 C181 491 181 506 181 524"/>
+  <text class="arrow-label" x="124" y="500">evidence</text>
+
+  <path class="arrow" d="M283 564 C302 564 313 564 329 564"/>
+  <text class="arrow-label" x="306" y="552">geo votes</text>
+
+  <path class="arrow" d="M427 603 C427 626 427 647 427 669"/>
+  <text class="arrow-label" x="473" y="638">export</text>
+
+  <!-- Bridge to Databricks -->
+  <path class="arrow" d="M525 700 C606 700 606 166 719 166"/>
+  <text class="arrow-label" x="620" y="392">upload to volume</text>
+
+  <!-- Databricks arrows -->
+  <path class="arrow" d="M806 197 C806 219 808 238 808 259"/>
+  <text class="arrow-label" x="856" y="232">load</text>
+
+  <path class="arrow" d="M898 294 C923 294 944 294 969 294"/>
+  <text class="arrow-label" x="934" y="282">candidate logic</text>
+
+  <path class="arrow" d="M1059 328 C1059 350 1059 369 1059 389"/>
+  <text class="arrow-label" x="1112" y="360">features</text>
+
+  <path class="arrow" d="M970 430 C946 430 922 430 899 430"/>
+  <text class="arrow-label" x="934" y="417">scores</text>
+
+  <path class="arrow" d="M809 468 C809 490 809 506 809 524"/>
+  <text class="arrow-label" x="752" y="500">review cases</text>
+
+  <path class="arrow" d="M898 562 C922 562 945 562 969 562"/>
+  <text class="arrow-label" x="934" y="550">resolve</text>
+
+  <path class="arrow" d="M1059 597 C1059 619 1059 640 1059 659"/>
+  <text class="arrow-label" x="1115" y="629">graph build</text>
+
+  <path class="arrow" d="M970 696 C944 696 922 696 899 696"/>
+  <text class="arrow-label" x="934" y="684">explain</text>
+
+  <path class="arrow" d="M898 719 C910 725 917 729 924 734"/>
+  <text class="arrow-label" x="903" y="750">context</text>
+
+  <path class="arrow" d="M1013 766 C1019 766 1024 766 1029 766"/>
+  <text class="arrow-label" x="1021" y="754">index</text>
+
+  <path class="arrow" d="M835 766 C830 766 825 766 821 766"/>
+  <text class="arrow-label" x="828" y="754">query</text>
+
+</svg>
