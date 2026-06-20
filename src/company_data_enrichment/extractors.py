@@ -55,12 +55,22 @@ EMPLOYEE_TRAILING_RE = re.compile(
     re.IGNORECASE,
 )
 GENERIC_TITLE_VALUES = {
+    "about",
+    "about us",
+    "contact",
+    "contact us",
     "home",
     "homepage",
     "home page",
     "index",
     "login",
+    "our services",
+    "products",
+    "services",
+    "service",
     "sign in",
+    "sign up",
+    "solutions",
     "welcome",
     "untitled",
 }
@@ -78,6 +88,32 @@ SOCIAL_WALL_DESCRIPTION_SNIPPETS = (
     "see posts, photos and more",
     "share photos and videos",
     "follow people and topics",
+)
+SOCIAL_WALL_PROFILE_TERMS = (
+    "account",
+    "connect",
+    "connections",
+    "friends",
+    "followers",
+    "identity",
+    "insights",
+    "members",
+    "network",
+    "opportunities",
+    "photos",
+    "posts",
+    "profile",
+    "topics",
+    "videos",
+)
+SOCIAL_WALL_ACCESS_TERMS = (
+    "create account",
+    "join",
+    "log in",
+    "login",
+    "sign in",
+    "sign up",
+    "view",
 )
 
 DEFAULT_VALIDATION_CONFIG = {
@@ -124,7 +160,22 @@ def is_social_wall_description(value):
         return False
 
     lowered = value.lower()
-    return any(snippet in lowered for snippet in SOCIAL_WALL_DESCRIPTION_SNIPPETS)
+    if any(snippet in lowered for snippet in SOCIAL_WALL_DESCRIPTION_SNIPPETS):
+        return True
+
+    profile_score = sum(term in lowered for term in SOCIAL_WALL_PROFILE_TERMS)
+    access_score = sum(term in lowered for term in SOCIAL_WALL_ACCESS_TERMS)
+
+    if access_score >= 1 and profile_score >= 2:
+        return True
+
+    if "members" in lowered and profile_score >= 5:
+        return True
+
+    if "professional" in lowered and "identity" in lowered and profile_score >= 4:
+        return True
+
+    return False
 
 
 def strip_markdown_noise(value):
@@ -497,15 +548,16 @@ def extract_from_jsonld(canonical_url, data, validation_config=None):
         if not is_organization_jsonld(item):
             continue
 
-        field = make_field(
-            canonical_url,
-            "company_name",
-            item.get("name"),
-            "json_ld",
-            0.75,
-        )
-        if field:
-            rows.append(field)
+        if not is_generic_title(item.get("name")):
+            field = make_field(
+                canonical_url,
+                "company_name",
+                item.get("name"),
+                "json_ld",
+                0.75,
+            )
+            if field:
+                rows.append(field)
 
         field = make_field(
             canonical_url,
@@ -668,6 +720,9 @@ def extract_from_html(crawl_row, validation_config=None):
             confidence = 0.55
 
         if field_name == "short_description" and is_social_wall_description(content):
+            continue
+
+        if field_name == "company_name" and is_generic_title(content):
             continue
 
         field = make_field(

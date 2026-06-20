@@ -32,6 +32,31 @@ def test_extract_jsonld_organization_name():
     assert ("primary_email", "info@acme.com") in values
 
 
+def test_extract_jsonld_ignores_generic_company_name():
+    html = """
+    <html>
+      <head>
+        <script type="application/ld+json">
+        {
+          "@type": "Organization",
+          "name": "Home",
+          "email": "info@example.com"
+        }
+        </script>
+      </head>
+    </html>
+    """
+
+    rows = extract_from_html({
+        "canonical_url": "https://example.com",
+        "success": True,
+        "html": html,
+        "markdown": "",
+    })
+
+    assert not any(row["field_name"] == "company_name" for row in rows)
+
+
 def test_extract_jsonld_country_name_creates_country_name_and_code():
     html = """
     <html>
@@ -218,6 +243,40 @@ def test_generic_social_wall_description_is_not_short_description_evidence():
     })
 
     assert not any(row["field_name"] == "short_description" for row in rows)
+
+
+def test_professional_network_wall_description_is_not_short_description_evidence():
+    rows = extract_from_html({
+        "canonical_url": "https://social.example.com/company/example",
+        "success": True,
+        "html": """
+        <html>
+          <head>
+            <meta name="description" content="Millions of members can manage a professional identity, build a professional network, and access insights and opportunities.">
+          </head>
+        </html>
+        """,
+        "markdown": "",
+    })
+
+    assert not any(row["field_name"] == "short_description" for row in rows)
+
+
+def test_generic_og_site_name_is_not_company_name_evidence():
+    rows = extract_from_html({
+        "canonical_url": "https://example.com",
+        "success": True,
+        "html": """
+        <html>
+          <head>
+            <meta property="og:site_name" content="Sign Up">
+          </head>
+        </html>
+        """,
+        "markdown": "",
+    })
+
+    assert not any(row["field_name"] == "company_name" for row in rows)
 
 
 def test_extract_year_founded_and_employee_count_from_text():
