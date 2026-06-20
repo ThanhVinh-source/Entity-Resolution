@@ -65,7 +65,7 @@ The full project is run in two environments: the local machine first, then Datab
 flowchart LR
     subgraph LOCAL["Local machine"]
         A["Local setup<br/>environment + config"] --> B["Raw company data<br/>attributes + website/social URLs"]
-        B --> C["URL preparation<br/>normalize + deduplicate sources"]
+        B --> C["URL preparation<br/>normalize URLs + remove duplicate crawl targets"]
         C --> D["Crawl4AI crawling<br/>websites, social pages, shallow crawl"]
         D --> E["Signal extraction<br/>HTML, Markdown, JSON-LD, contacts"]
         E --> F["Geo validation<br/>TLD, language, country/city evidence"]
