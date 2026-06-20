@@ -202,6 +202,10 @@ def is_valid_phone_candidate(value):
     if value is None:
         return False
 
+    digit_groups = re.findall(r"\d+", value)
+    if len(digit_groups) >= 4 and max(len(group) for group in digit_groups) <= 2:
+        return False
+
     digits = re.sub(r"\D", "", value)
     return 8 <= len(digits) <= 15
 

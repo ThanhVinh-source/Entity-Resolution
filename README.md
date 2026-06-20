@@ -79,13 +79,13 @@ cd "Entity Resolution"
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-export PYTHONPATH="$PWD/src"
+export PYTHONPATH=src
 ```
 
 3. Run the local enrichment workflow.
 
 ```bash
-python -m company_data_enrichment.pipeline run-all \
+PYTHONPATH=src python -m company_data_enrichment.pipeline run-all \
   --config config/company_data_enrichment.yaml
 ```
 
@@ -200,13 +200,17 @@ Create and activate a Python environment:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-export PYTHONPATH="$PWD/src"
+export PYTHONPATH=src
 ```
+
+Use `PYTHONPATH=src` from the repository root. This avoids issues when parent
+folder names contain `:`, because Python treats `:` as a path-list separator on
+macOS and Linux.
 
 Run tests:
 
 ```bash
-pytest
+PYTHONPATH=src pytest
 ```
 
 ## Crawling Step
@@ -245,7 +249,7 @@ raw CSV URL columns
 Detailed Python and file flow:
 
 ```text
-python -m company_data_enrichment.pipeline run-all --config config/company_data_enrichment.yaml
+PYTHONPATH=src python -m company_data_enrichment.pipeline run-all --config config/company_data_enrichment.yaml
   -> src/company_data_enrichment/pipeline.py::main()
   -> src/company_data_enrichment/pipeline.py::run_all()
 
@@ -304,6 +308,13 @@ The detailed flow maps to the local pipeline stages as follows:
 - `rules.py` decides whether to keep, add, or replace original values with extracted values.
 - `quality_report.py` summarizes enrichment quality after merge.
 
+The extractor applies conservative noise filters before evidence reaches the
+merge rules. It removes markdown image and file-link noise before phone
+matching, rejects phone-like numbered lists, ignores generic company-name
+signals such as `Home`, `Sign Up`, and `Services`, and filters common
+social/login wall descriptions rather than treating platform boilerplate as a
+company description.
+
 The URL manifest is built from the URL columns configured in `config/company_data_enrichment.yaml`:
 
 ```text
@@ -335,14 +346,14 @@ The crawler also filters out low-value or risky pages such as login, signup, acc
 Run only the crawl stage:
 
 ```bash
-python -m company_data_enrichment.pipeline crawl \
+PYTHONPATH=src python -m company_data_enrichment.pipeline crawl \
   --config config/company_data_enrichment.yaml
 ```
 
 For a small crawl test:
 
 ```bash
-python -m company_data_enrichment.pipeline crawl \
+PYTHONPATH=src python -m company_data_enrichment.pipeline crawl \
   --config config/company_data_enrichment.yaml \
   --limit 10
 ```
@@ -350,11 +361,11 @@ python -m company_data_enrichment.pipeline crawl \
 You can also run each stage separately:
 
 ```bash
-python -m company_data_enrichment.pipeline build-manifest --config config/company_data_enrichment.yaml
-python -m company_data_enrichment.pipeline crawl --config config/company_data_enrichment.yaml
-python -m company_data_enrichment.pipeline extract --config config/company_data_enrichment.yaml
-python -m company_data_enrichment.pipeline merge --config config/company_data_enrichment.yaml
-python -m company_data_enrichment.pipeline export-er-ready --config config/company_data_enrichment.yaml
+PYTHONPATH=src python -m company_data_enrichment.pipeline build-manifest --config config/company_data_enrichment.yaml
+PYTHONPATH=src python -m company_data_enrichment.pipeline crawl --config config/company_data_enrichment.yaml
+PYTHONPATH=src python -m company_data_enrichment.pipeline extract --config config/company_data_enrichment.yaml
+PYTHONPATH=src python -m company_data_enrichment.pipeline merge --config config/company_data_enrichment.yaml
+PYTHONPATH=src python -m company_data_enrichment.pipeline export-er-ready --config config/company_data_enrichment.yaml
 ```
 
 The crawling step writes raw crawl outputs under `dataset/silver`, including the crawl queue and raw crawl results. These outputs are then used by the `extract` step to identify enriched company attributes such as location, email, phone, description, and other metadata.
@@ -369,9 +380,16 @@ dataset/silver/company_validation_results.csv
 
 These files contain:
 
-- `data_enriched.csv`: The enriched company dataset after crawling, extraction, validation, and rule-based merge logic. It keeps the improved company attributes and enrichment evidence used before the entity-resolution step.
-- `data_er_ready.csv`: The final local export prepared for Databricks entity resolution. This is the main file uploaded to the Databricks volume and loaded by `01_load_er_ready.ipynb`.
+- `data_enriched.csv`: The enriched company dataset after crawling, extraction, validation, and rule-based merge logic. It keeps the improved company attributes, extracted evidence, final values, and action labels used before the entity-resolution step.
+- `data_er_ready.csv`: The final local export prepared for Databricks entity resolution. This is the main file uploaded to the Databricks volume and loaded by `01_load_er_ready.ipynb`. It includes source/provenance columns such as `company_name_source`, `country_source`, `city_source`, `email_source`, `phone_source`, and `description_source` so downstream users can see whether exported values came from original data, enrichment, validation, or low-confidence fallback logic.
 - `company_validation_results.csv`: The country and city validation audit output. It records signals such as TLD, language, JSON-LD, web text, social evidence, voted country, confidence, verdict, recommended action, and validation reason. This file is generated by the pipeline but is not committed to Git because it can be large.
+
+Phone export is intentionally conservative. Structured phone evidence from
+JSON-LD or `tel:` links may replace an existing raw phone value when confidence
+is high enough. Phone evidence extracted only from plain page text is allowed to
+fill missing values, but it does not automatically replace a non-empty raw phone
+because legal pages, numbered lists, menus, and filenames can look like phone
+numbers.
 
 The file used by Databricks is:
 

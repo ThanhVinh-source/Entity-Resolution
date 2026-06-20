@@ -217,6 +217,23 @@ def test_phone_extraction_prefers_tel_links():
     assert ("primary_phone", "+923401111215", "tel_link") in values
 
 
+def test_phone_extraction_ignores_numbered_lists():
+    rows = extract_from_html({
+        "canonical_url": "https://example.com/legal",
+        "success": True,
+        "html": """
+        <html>
+          <body>
+            <main>Sections 1. 2. 3. 4. 5. 6. 7. 8. 9. 10. 1 apply.</main>
+          </body>
+        </html>
+        """,
+        "markdown": "",
+    })
+
+    assert not any(row["field_name"] == "primary_phone" for row in rows)
+
+
 def test_generic_home_title_is_not_company_name_evidence():
     rows = extract_from_html({
         "canonical_url": "https://example.com",
