@@ -63,17 +63,30 @@ The full project is run in two environments: the local machine first, then Datab
 
 ```mermaid
 flowchart LR
-    A["Local root"] --> B["Install deps"]
-    B --> C["Run enrichment"]
-    C --> D["data_er_ready.csv"]
-    D --> E["Create UC schema + volume"]
-    E --> F["Upload CSV"]
-    F --> G["Import notebooks"]
-    G --> H["Create Job"]
-    H --> I["Run Job"]
-    I --> J["ER + GraphRAG tables"]
-    J --> K["AI Search index"]
-    K --> L["AI Playground"]
+    subgraph LOCAL["Local root: local enrichment workspace"]
+        A["Project root<br/>README.md, config/, src/, dataset/"] --> B["Create venv + install deps<br/>requirements.txt"]
+        B --> C["Run local pipeline<br/>company_data_enrichment.pipeline run-all"]
+        C --> C1["Read config + raw CSV<br/>company_data_enrichment.yaml<br/>data_sample_AofAI.csv"]
+        C1 --> C2["Build URL manifest<br/>website + social URL columns"]
+        C2 --> C3["Build crawl queue<br/>deduplicate URLs + prioritize official sites"]
+        C3 --> C4["Crawl with Crawl4AI<br/>official websites, social pages,<br/>optional shallow deep crawl"]
+        C4 --> C5["Write raw crawl results<br/>crawl_results_raw.parquet"]
+        C5 --> C6["Extract + validate fields<br/>HTML/Markdown, JSON-LD, TLD,<br/>country and city signals"]
+        C6 --> C7["Merge enrichment evidence<br/>KEEP / ADD / REPLACE rules"]
+        C7 --> D["Export ER-ready dataset<br/>dataset/silver/data_er_ready.csv"]
+    end
+
+    subgraph DBX["Databricks workspace"]
+        E["Create UC schema + volume"] --> F["Upload CSV"]
+        F --> G["Import notebooks"]
+        G --> H["Create Job"]
+        H --> I["Run Job"]
+        I --> J["ER + GraphRAG tables"]
+        J --> K["AI Search index"]
+        K --> L["AI Playground"]
+    end
+
+    D --> E
 ```
 
 Step-by-step:
