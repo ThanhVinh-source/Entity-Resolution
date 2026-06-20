@@ -61,34 +61,9 @@ The final layer converts decisions into a knowledge graph, SHAP-backed XAI expla
 
 The full project is run in two environments: the local machine first, then Databricks.
 
-```mermaid
-flowchart LR
-    subgraph LOCAL["Local machine"]
-        A["Local setup<br/>environment + config"] --> B["Raw company data<br/>attributes + website/social URLs"]
-        B --> C["URL preparation<br/>normalize URLs + remove duplicate crawl targets"]
-        C --> D["Crawl4AI crawling<br/>websites, social pages, shallow crawl"]
-        D --> E["Signal extraction<br/>HTML, Markdown, JSON-LD, contacts"]
-        E --> F["Geo validation<br/>TLD, language, country/city evidence"]
-        F --> G["Field enrichment<br/>KEEP / ADD / REPLACE logic"]
-        G --> H["ER-ready export<br/>data_er_ready.csv"]
-    end
-
-    subgraph DBX["Databricks workspace"]
-        I["Upload CSV"] --> J["Load + clean records"]
-        J --> K["Generate candidate pairs"]
-        K --> L["Score pairs<br/>string, semantic, location"]
-        L --> M["Decision layer<br/>rules + thresholds"]
-        M --> N["LLM tie-breaker"]
-        N --> O["Final match decisions"]
-        O --> P["Knowledge graph"]
-        P --> Q["XAI explanations<br/>SHAP evidence"]
-        Q --> R["GraphRAG documents"]
-        R --> S["Enable CDF + AI Search index"]
-        S --> T["AI Playground"]
-    end
-
-    H --> I
-```
+<p align="center">
+  <img src="docs/overall-flow-art.svg" alt="Overall project flow from local enrichment with Crawl4AI to Databricks Entity Resolution, GraphRAG, AI Search, and AI Playground" width="100%">
+</p>
 
 Step-by-step:
 
