@@ -157,9 +157,9 @@
 
   <g>
     <rect class="box" x="930" y="500" width="235" height="94" fill="#ffe5d9"/>
-    <text class="node-text" x="1047.5" y="533">Decision layer</text>
-    <text class="node-subtext" x="1047.5" y="558">rules + thresholds</text>
-    <text class="node-subtext" x="1047.5" y="579">match / review / no match</text>
+    <text class="node-text" x="1047.5" y="529">Deterministic</text>
+    <text class="node-text" x="1047.5" y="552">decision</text>
+    <text class="node-subtext" x="1047.5" y="578">rules + thresholds</text>
   </g>
 
   <g>
@@ -169,9 +169,9 @@
   </g>
 
   <g>
-    <rect class="box" x="1280" y="685" width="235" height="86" fill="#eadcff"/>
-    <text class="node-text" x="1397.5" y="721">Final decisions</text>
-    <text class="node-subtext" x="1397.5" y="747">match outcomes</text>
+    <rect class="box" x="1280" y="620" width="235" height="86" fill="#eadcff"/>
+    <text class="node-text" x="1397.5" y="656">Final decisions</text>
+    <text class="node-subtext" x="1397.5" y="682">match outcomes</text>
   </g>
 
   <g>
@@ -243,14 +243,17 @@
   <path class="arrow" d="M1280 547 L1165 547"/>
   <text class="arrow-label" x="1222" y="531">scores</text>
 
+  <path class="arrow" d="M1165 582 L1280 650"/>
+  <text class="arrow-label" x="1224" y="612">clear</text>
+
   <path class="arrow" d="M1048 594 L1048 685"/>
-  <text class="arrow-label" x="960" y="646">review cases</text>
+  <text class="arrow-label" x="960" y="646">ambiguous</text>
 
-  <path class="arrow" d="M1165 728 L1280 728"/>
-  <text class="arrow-label" x="1222" y="712">resolve</text>
+  <path class="arrow" d="M1165 728 L1280 682"/>
+  <text class="arrow-label" x="1222" y="692">resolve</text>
 
-  <path class="arrow" d="M1398 771 L1398 840"/>
-  <text class="arrow-label" x="1464" y="813">graph build</text>
+  <path class="arrow" d="M1398 706 L1398 840"/>
+  <text class="arrow-label" x="1464" y="776">graph build</text>
 
   <path class="arrow" d="M1280 883 L1165 883"/>
   <text class="arrow-label" x="1222" y="867">explain</text>
