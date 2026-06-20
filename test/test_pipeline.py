@@ -9,8 +9,6 @@ from company_data_enrichment.pipeline import (
     build_er_ready_frame,
     build_geo_prefill,
     build_validation_evidence_rows,
-    choose_phone_final_value,
-    decide_phone_action,
     print_crawl_results_summary,
 )
 
@@ -86,7 +84,6 @@ def test_build_best_evidence_joins_deep_page_by_seed_url(tmp_path):
 
     assert result.loc[0, "Applications_of_AI_id"] == "A1"
     assert result.loc[0, "extracted_short_description"] == "Industrial automation supplier"
-    assert result.loc[0, "extracted_short_description_evidence_type"] == "meta"
     assert evidence[0]["seed_url"] == "https://example.com"
     assert evidence[0]["page_url"] == "https://example.com/about"
     assert evidence[0]["depth"] == 1
@@ -542,47 +539,3 @@ def test_build_er_ready_frame_uses_final_phone_when_confident():
 
     assert result.loc[0, "primary_phone"] == "+92 3401111215"
     assert result.loc[0, "phone_source"] == "final"
-
-
-def test_page_text_phone_does_not_replace_existing_phone():
-    action = decide_phone_action(
-        original_value="17273072695",
-        extracted_value="+92 3401111215",
-        confidence=0.80,
-        add_threshold=0.60,
-        replace_threshold=0.80,
-        evidence_type="page_text",
-    )
-    final_value = choose_phone_final_value(
-        original_value="17273072695",
-        extracted_value="+92 3401111215",
-        confidence=0.80,
-        add_threshold=0.60,
-        replace_threshold=0.80,
-        evidence_type="page_text",
-    )
-
-    assert action == "CONFLICT_REVIEW"
-    assert final_value == "17273072695"
-
-
-def test_structured_phone_can_replace_existing_phone():
-    action = decide_phone_action(
-        original_value="17273072695",
-        extracted_value="+92 3401111215",
-        confidence=0.80,
-        add_threshold=0.60,
-        replace_threshold=0.80,
-        evidence_type="tel_link",
-    )
-    final_value = choose_phone_final_value(
-        original_value="17273072695",
-        extracted_value="+92 3401111215",
-        confidence=0.80,
-        add_threshold=0.60,
-        replace_threshold=0.80,
-        evidence_type="tel_link",
-    )
-
-    assert action == "REPLACE"
-    assert final_value == "+92 3401111215"

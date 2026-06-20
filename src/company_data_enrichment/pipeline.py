@@ -67,7 +67,6 @@ EXTRACTED_FIELD_COLUMNS = [
 ]
 
 LOCKED_COUNTRY_FIELDS = {"main_country_code", "main_country"}
-PHONE_REPLACE_EVIDENCE_TYPES = {"json_ld", "tel_link"}
 VALIDATION_ACCEPTED_VERDICTS = {
     "CONFIRMED",
     "CONFLICT_TLD",
@@ -807,23 +806,6 @@ def build_best_evidence(config):
         }
     )
 
-    evidence_type_df = (
-        best_df.pivot(
-            index="Applications_of_AI_id",
-            columns="field_name",
-            values="evidence_type",
-        )
-        .reset_index()
-        .rename_axis(None, axis=1)
-    )
-    evidence_type_df = evidence_type_df.rename(
-        columns={
-            column: "extracted_" + column + "_evidence_type"
-            for column in evidence_type_df.columns
-            if column != "Applications_of_AI_id"
-        }
-    )
-
     source_rows = []
 
     for application_id, group in best_df.groupby("Applications_of_AI_id"):
@@ -837,7 +819,6 @@ def build_best_evidence(config):
     source_df = pd.DataFrame(source_rows)
 
     wide_df = values_df.merge(confidence_df, on="Applications_of_AI_id", how="left")
-    wide_df = wide_df.merge(evidence_type_df, on="Applications_of_AI_id", how="left")
     wide_df = wide_df.merge(source_df, on="Applications_of_AI_id", how="left")
     return wide_df
 
@@ -889,57 +870,6 @@ def build_actions_json(row, target_fields):
     return json.dumps(items, ensure_ascii=False)
 
 
-def decide_phone_action(
-    original_value,
-    extracted_value,
-    confidence,
-    add_threshold,
-    replace_threshold,
-    evidence_type,
-):
-    confidence = safe_confidence(confidence)
-
-    if is_missing(extracted_value):
-        return "KEEP"
-
-    if is_missing(original_value) and confidence >= add_threshold:
-        return "ADD"
-
-    if normalize_text(original_value) == normalize_text(extracted_value):
-        return "KEEP"
-
-    if (
-        evidence_type in PHONE_REPLACE_EVIDENCE_TYPES
-        and confidence >= replace_threshold
-    ):
-        return "REPLACE"
-
-    return "CONFLICT_REVIEW"
-
-
-def choose_phone_final_value(
-    original_value,
-    extracted_value,
-    confidence,
-    add_threshold,
-    replace_threshold,
-    evidence_type,
-):
-    action = decide_phone_action(
-        original_value=original_value,
-        extracted_value=extracted_value,
-        confidence=confidence,
-        add_threshold=add_threshold,
-        replace_threshold=replace_threshold,
-        evidence_type=evidence_type,
-    )
-
-    if action in ["ADD", "REPLACE"]:
-        return extracted_value
-
-    return original_value
-
-
 def run_merge(config):
     ensure_output_dir(config)
 
@@ -969,57 +899,27 @@ def run_merge(config):
 
         enriched_df[confidence_col] = enriched_df[confidence_col].apply(safe_confidence)
 
-        if field_name == "primary_phone":
-            evidence_type_col = extracted_col + "_evidence_type"
+        enriched_df[action_col] = enriched_df.apply(
+            lambda row: decide_action(
+                original_value=row.get(field_name),
+                extracted_value=row.get(extracted_col),
+                confidence=row.get(confidence_col),
+                add_threshold=add_threshold,
+                replace_threshold=replace_threshold,
+            ),
+            axis=1,
+        )
 
-            if evidence_type_col not in enriched_df.columns:
-                enriched_df[evidence_type_col] = None
-
-            enriched_df[action_col] = enriched_df.apply(
-                lambda row: decide_phone_action(
-                    original_value=row.get(field_name),
-                    extracted_value=row.get(extracted_col),
-                    confidence=row.get(confidence_col),
-                    add_threshold=add_threshold,
-                    replace_threshold=replace_threshold,
-                    evidence_type=row.get(evidence_type_col),
-                ),
-                axis=1,
-            )
-
-            enriched_df[final_col] = enriched_df.apply(
-                lambda row: choose_phone_final_value(
-                    original_value=row.get(field_name),
-                    extracted_value=row.get(extracted_col),
-                    confidence=row.get(confidence_col),
-                    add_threshold=add_threshold,
-                    replace_threshold=replace_threshold,
-                    evidence_type=row.get(evidence_type_col),
-                ),
-                axis=1,
-            )
-        else:
-            enriched_df[action_col] = enriched_df.apply(
-                lambda row: decide_action(
-                    original_value=row.get(field_name),
-                    extracted_value=row.get(extracted_col),
-                    confidence=row.get(confidence_col),
-                    add_threshold=add_threshold,
-                    replace_threshold=replace_threshold,
-                ),
-                axis=1,
-            )
-
-            enriched_df[final_col] = enriched_df.apply(
-                lambda row: choose_final_value(
-                    original_value=row.get(field_name),
-                    extracted_value=row.get(extracted_col),
-                    confidence=row.get(confidence_col),
-                    add_threshold=add_threshold,
-                    replace_threshold=replace_threshold,
-                ),
-                axis=1,
-            )
+        enriched_df[final_col] = enriched_df.apply(
+            lambda row: choose_final_value(
+                original_value=row.get(field_name),
+                extracted_value=row.get(extracted_col),
+                confidence=row.get(confidence_col),
+                add_threshold=add_threshold,
+                replace_threshold=replace_threshold,
+            ),
+            axis=1,
+        )
 
     if "evidence_json" not in enriched_df.columns:
         enriched_df["evidence_json"] = None
