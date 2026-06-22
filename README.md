@@ -641,6 +641,26 @@ llm_confidence >= 0.70
 
 Otherwise, the record remains for review.
 
+## Results
+
+Final decision distribution by source:
+
+| final_decision | final_decision_source | count |
+| --- | --- | ---: |
+| MATCH | deterministic | 391 |
+| MATCH | llm_tiebreaker | 77 |
+| NO_MATCH | llm_tiebreaker | 69 |
+| REVIEW | manual_review | 43 |
+| NO_MATCH | deterministic | 12 |
+
+Final decision summary:
+
+| final_decision | count | avg_final_confidence | avg_top1_score | avg_gap | avg_entropy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| MATCH | 468 | 0.857 | 0.841 | 0.132 | 0.985 |
+| NO_MATCH | 81 | 0.768 | 0.644 | 0.038 | 0.989 |
+| REVIEW | 43 | 0.676 | 0.676 | 0.021 | 0.993 |
+
 ## XAI and SHAP Explanation Layer
 
 Notebook `10_xai_explanation.ipynb` adds a post-hoc XAI layer after final decisions have already been produced. SHAP is used only to explain the deterministic composite score; it does not change candidate ranking, thresholds, LLM tie-breaker outcomes, or final `MATCH`, `NO_MATCH`, and `REVIEW` decisions.
