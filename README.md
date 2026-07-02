@@ -62,7 +62,7 @@ The final layer converts decisions into a knowledge graph, SHAP-backed XAI expla
 The full project is run in two environments: the local machine first, then Databricks.
 
 <p align="center">
-  <img src="docs/overall-flow-art.svg" alt="Overall project flow from local enrichment with Crawl4AI to Databricks Entity Resolution, GraphRAG, AI Search, and AI Playground" width="100%">
+  <img src="docs/flow.svg" alt="Overall project flow from local enrichment with Crawl4AI to Databricks Entity Resolution, GraphRAG, AI Search, and AI Playground" width="100%">
 </p>
 
 Step-by-step:
@@ -158,7 +158,7 @@ workspace.entity_resolution_project.company_er_graphrag_documents
 │       ├── data_enriched.csv
 │       └── data_er_ready.csv
 ├── docs/
-│   └── overall-flow-art.svg                       # Overall project flow diagram used in this README
+│   └── flow.svg                       # Overall project flow diagram used in this README
 ├── src/
 │   ├── company_data_enrichment/                   # Local Python enrichment, extraction, validation, and export logic
 │   │   ├── crawler.py
