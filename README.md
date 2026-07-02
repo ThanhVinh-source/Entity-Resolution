@@ -157,6 +157,8 @@ workspace.entity_resolution_project.company_er_graphrag_documents
 │   └── silver/                                    # Tracked enrichment outputs used by Databricks
 │       ├── data_enriched.csv
 │       └── data_er_ready.csv
+├── docs/
+│   └── overall-flow-art.svg                       # Overall project flow diagram used in this README
 ├── src/
 │   ├── company_data_enrichment/                   # Local Python enrichment, extraction, validation, and export logic
 │   │   ├── crawler.py
